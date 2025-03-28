@@ -1,0 +1,11 @@
+import numpy as np
+
+def roll_column(df, col, winsize):
+  # do the standard Pandas rolling calc
+  t_col = df[col].rolling(winsize, closed='left').sum().to_numpy()
+  # for the early columns, just do a rolling sum from the beginning
+  t_col[:winsize] = np.concatenate(([0],df[col].iloc[:(winsize)].cumsum().to_numpy()[:-1]))
+  return t_col
+
+def agg_non_na(series):
+  return series.dropna().iloc[0] if not series.dropna().empty else None

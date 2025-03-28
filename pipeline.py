@@ -17,6 +17,7 @@ from bs4 import BeautifulSoup
 
 from api.pitchers import get_full_pitching_data
 from api.batters import get_full_batting_data
+from api.odds import get_odds
 
 import tweepy
 
@@ -67,8 +68,10 @@ def get_lineups():
         current_game.update({
           'date': e.find_previous('main').get('data-gamedate'),
           'game_time': e.find_previous('div', attrs={'class':'lineup__time'}).get_text(strip=True),
-          'team_h': e.find_previous('div', attrs={'class': 'is-home'}).next.strip(),
-          'team_v': e.find_previous('div', attrs={'class': 'is-visit'}).next.strip(),
+          'team_h': e.find_previous('div', attrs={'class': 'lineup__team is-home'}).find_next('div', attrs={'class': 'lineup__abbr'}).get_text(strip=True),
+          #'team_h': e.find_previous('div', attrs={'class': 'is-home'}).next.strip(),
+          #'team_v': e.find_previous('div', attrs={'class': 'is-visit'}).next.strip(),
+          'team_v': e.find_previous('div', attrs={'class': 'lineup__team is-visit'}).find_next('div', attrs={'class': 'lineup__abbr'}).get_text(strip=True),
           f'starting_pitcher_name{suffix}': e.a.get_text(strip=True),
           f'starting_pitcher_id{suffix}': pitcherid,
         })
@@ -107,13 +110,15 @@ def get_lineups():
   # Convert to DataFrame
   final_df = pd.DataFrame(all_data)
   
-  final_df['game_id'] = final_df['date'] + ' ' + final_df['game_time']
+  final_df['game_id'] = final_df['date'] + final_df['game_time'] + final_df['team_h'] + final_df['team_v']
   
   # Group by 'game_id' and aggregate data
   merged_df = final_df.groupby('game_id').agg(agg_non_na).reset_index(drop=True)
   
   # Ensure 'date' column is in datetime format
   merged_df['date'] = pd.to_datetime(merged_df['date'], errors='coerce')
+  
+  merged_df.reset_index(drop=True, inplace=True)
 
   # Merge with the existing `df` based on common columns
   return merged_df
@@ -156,23 +161,29 @@ def lambda_handler(event, context):
   RUN_DATE = date.today() if TOMORROW_GAMES == 0 else date.today() + timedelta(days=1)
   print(f'\nGetting Starting Lineups for {RUN_DATE}')
   df = get_lineups()
+  #df = pd.read_csv('data/2025-03-27_player_data.csv')
   
   print_todays_slate(df)
   
   print(f'\nSaving Player DataFrame to CSV')
-  df.to_csv(f'{RUN_DATE}_player_data.csv')
+  df.to_csv(f'data/{RUN_DATE}_player_data.csv')
   
   #TODO: Add 10/35/75/162 Rolling Windows Data for Pitchers & Batters
 
-  #TODO: Add Odds Data
-
-  #df = pd.read_csv('2025-03-25_player_data.csv')
+  print(f'\nGetting Odds Data')
+  df['odds'] = None # init as empty column
+  #df['odds'] = df.apply(lambda row: get_odds(row['team_h'], row['date']), axis=1)
+  
+  print(df.head())
+  
   
   print(f'\nMaking Predictions')
+  df['predict_runs_scored'] = None # init as empty column
+  df['home_victory'] = None # init as empty column
   #df['predict_runs_scored'] = df.apply(predict_runs_scored, axis=1)
-  #df['predict_home_win'] = df.apply(predict_winner, axis=1)
+  #df['home_victory'] = df.apply(predict_winner, axis=1)
   
-  #print(df.head(10))
+
   
   print(f'\nPosting picks to X')
   #post_to_X()
