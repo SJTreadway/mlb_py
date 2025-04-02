@@ -4,13 +4,14 @@ import pandas as pd
 import numpy as np
 import requests
 import os
+from tqdm import tqdm
 
 from pybaseball import playerid_lookup
 import statsapi
 
 from bs4 import BeautifulSoup
 
-from api.pitchers import get_full_pitching_data
+from api.pitchers import get_full_pitching_data, get_bullpen_data
 from api.batters import get_full_batting_data
 
 from helpers import agg_non_na
@@ -32,7 +33,7 @@ def get_lineups():
   team_type = ''
   current_game = {}  # Store home and away teams separately before merging
 
-  for e in soup.select('.lineup__box ul li'):
+  for e in tqdm(soup.select('.lineup__box ul li')):
     if team_type != e.parent.get('class')[-1]:
       order_count = 1
       team_type = e.parent.get('class')[-1]
@@ -45,7 +46,9 @@ def get_lineups():
       if e.a is not None:
         name = e.a.get_text(strip=True).split(' ')
         f_name, l_name = name[0], name[-1]
-        pitcherid = playerid_lookup(l_name, f_name).get('key_retro')
+        pitcher_df = playerid_lookup(l_name, f_name)
+        pitcher_df= pitcher_df.sort_values(by="mlb_played_last", ascending=False)
+        pitcherid = pitcher_df.get('key_retro')
         suffix = "_h" if team_type == "is-home" else "_v"
 
         # Check if pitcherid lookup returned a value
@@ -72,17 +75,20 @@ def get_lineups():
         
         gp_h = team_h_stats['gamesPlayed']
         gp_v = team_v_stats['gamesPlayed']
-
+        
         current_game.update({
           'date': date,
           'date_dblhead': date_dblhead,
           'game_time': game_time,
           'team_h': team_h,
+          'team_h_full': team_h_full,
           'team_v': team_v,
+          'team_v_full': team_v_full,
           # home stats
           'AB_h': team_h_stats['atBats'] / gp_h,
           'BB_h': team_h_stats['baseOnBalls'] / gp_h,
           'H_h': team_h_stats['hits'] / gp_h,
+          'R_h': team_h_stats['runs'] / gp_h,
           'x2B_h': team_h_stats['doubles'] / gp_h,
           'x3B_h': team_h_stats['triples'] / gp_h,
           'HR_h': team_h_stats['homeRuns'] / gp_h,
@@ -94,6 +100,7 @@ def get_lineups():
           'AB_v': team_v_stats['atBats'] / gp_v,
           'BB_v': team_v_stats['baseOnBalls'] / gp_v,
           'H_v': team_v_stats['hits'] / gp_v,
+          'R_v': team_v_stats['runs'] / gp_v,
           'x2B_v': team_v_stats['doubles'] / gp_v,
           'x3B_v': team_v_stats['triples'] / gp_v,
           'HR_v': team_v_stats['homeRuns'] / gp_v,
@@ -107,7 +114,7 @@ def get_lineups():
         
         if not p_data.empty:
           p_data_dict = p_data.to_dict(orient="records")[0]  # Convert first row to dict
-          current_game.update({f'Strt_{k}{suffix}': v for k, v in p_data_dict.items()})
+          current_game.update(p_data_dict)
 
     elif e.get('class') and 'lineup__player' in e.get('class'):
       if e.a is not None:
@@ -127,9 +134,9 @@ def get_lineups():
           f'batter{order_count}_pos{suffix}': e.div.get_text(strip=True)
         })
         
-        if not b_data.empty:
+        if b_data is not None and not b_data.empty:
           b_data_dict = b_data.to_dict(orient="records")[0]  # Convert first row to dict
-          current_game.update({f'batter{order_count}_{k}{suffix}': v for k, v in b_data_dict.items()})
+          current_game.update(b_data_dict)
 
         order_count += 1
 
@@ -138,52 +145,55 @@ def get_lineups():
 
   # Convert to DataFrame
   final_df = pd.DataFrame(all_data)
+  
   # Define column stems and window sizes
   colstems = ['BATAVG', 'OBP', 'SLG', 'OBS', 'SLGmod', 'SObat_perc']
   winsizes = [30, 75, 162, 350]
 
   # Generate lineup-related column names (lineup8_ and lineup9_)
   lineup_cols = [
-      f"lineup{lineup}_{stem}_{winsize}{wornot}{hv}"
-      for lineup in [8, 9]
-      for stem in colstems
-      for winsize in winsizes
-      for wornot in ['', '_w']
-      for hv in ['_h', '_v']
+    f"lineup{lineup}_{stem}_{winsize}{wornot}{hv}"
+    for lineup in [8, 9]
+    for stem in colstems
+    for winsize in winsizes
+    for wornot in ['', '_w']
+    for hv in ['_h', '_v']
   ]
-
+  
   # Additional bullpen-specific column names
   bullpen_cols = [
-      f"Bpen_{metric}_{size}{hv}"
-      for metric in ["WHIP", "SO_perc", "H_BB_perc", "TB_BB_perc"]
-      for size in [10, 35, 75]
-      for hv in ["_h", "_v"]
+    f"Bpen_{metric}_{size}{hv}"
+    for metric in ["WHIP", "SO_perc", "H_BB_perc", "TB_BB_perc"]
+    for size in [10, 35, 75]
+    for hv in ["_h", "_v"]
   ]
-
+  
   # Combine all column lists
   all_new_cols = lineup_cols + bullpen_cols
 
   # Add all new columns with NaN values in a single operation
   final_df = final_df.assign(**{col: 0.0 for col in all_new_cols})
   
+  # Add Bullpen Pitching Data
+  final_df = get_bullpen_data(final_df)
+  
   final_df['game_id'] = str(final_df['date_dblhead']) + final_df['team_h'] + final_df['team_v']
   
   # Group by 'game_id' and aggregate data
-  merged_df = final_df.groupby('game_id').agg(agg_non_na).reset_index(drop=True)
+  merged_df = final_df.groupby('game_id').agg(agg_non_na)#.reset_index(drop=True)
   
   # Ensure 'date' column is in datetime format
-  merged_df['date'] = pd.to_datetime(merged_df['date'], errors='coerce')
-  
   merged_df.reset_index(drop=True, inplace=True)
+  
+  merged_df.sort_values(by='date_dblhead', ascending=False, inplace=True)
 
   # Merge with the existing `df` based on common columns
   return merged_df
 
 def get_run_total_feats(df):
-  cols_ref = ['date','date_dblhead','game_time','team_h','team_v']
-  target_cols = ['runs_h', 'runs_v']
+  cols_ref = ['date','date_dblhead','game_time','team_h','team_h_full','team_v','team_v_full']
 
-  team_hit_stems = ['BATAVG','OBP','SLG','OBS','ERR','SB','CS']
+  team_hit_stems = ['BATAVG','OBP','SLG','OBS','SB','CS']
   lineup_hit_stems = ['BATAVG','OBP','SLG','OBS','SLGmod','SObat_perc']
   strt_pitch_stems = ['ERA','WHIP','SO_perc','H_BB_perc','TB_BB_perc','FIP','FIP_perc']
   bpen_pitch_stems = ['WHIP','SO_perc','H_BB_perc','TB_BB_perc']
@@ -215,9 +225,10 @@ def get_run_total_feats(df):
   stripped_feats  = [x[:-2] for x in team_hit_features_a + lineup_hit_features_a + start_pitch_features_a + bpen_pitch_features_a]
 
   final_col_list = cols_ref + stripped_feats + ['home_hitting']
-
+  
   df_a.columns = final_col_list
   df_b.columns = final_col_list
   df_runs = pd.concat((df_a,df_b))
+
   return df_runs
   

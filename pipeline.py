@@ -1,28 +1,26 @@
 #!/usr/bin/env python3
 
-import json
-import pandas as pd
-import numpy as np
-import requests
-import time
-import io
 import os
-from datetime import date, datetime, timedelta
-from pytz import timezone
+import math
+import warnings
+# Silence all performance warnings
+warnings.simplefilter("ignore", category=UserWarning)
+warnings.simplefilter("ignore", category=FutureWarning)
+
+import pandas as pd
+warnings.filterwarnings("ignore", category=pd.errors.PerformanceWarning)
+from datetime import date, timedelta
 import pickle
 
-from pybaseball import playerid_lookup
-
-from bs4 import BeautifulSoup
-
-from api.pitchers import get_full_pitching_data
-from api.batters import get_full_batting_data
-from api.odds import get_odds
+from api.teams import get_all_teams_data, get_prev_years_data, generate_team_window_features
+from api.lineups import get_lineups, get_run_total_feats
+from api.odds import get_total_odds, get_total_line, get_total_ev, get_money_line, get_money_line_price
 
 import tweepy
 
 from dotenv import load_dotenv
 load_dotenv()
+
 
 # X essentials
 ACCESS_KEY = os.environ['X_ACCESS_KEY']
@@ -31,112 +29,92 @@ CONSUMER_KEY = os.environ['X_CONSUMER_KEY']
 CONSUMER_SECRET = os.environ['X_CONSUMER_SECRET']
 BEARER_TOKEN = os.environ['X_BEARER_TOKEN']
 
+# GitHub Token
+GH_TOKEN = os.environ['GH_TOKEN']
+
 # Flags for Settings
 TOMORROW_GAMES = int(os.environ['TOMORROW_GAMES'])
 
-# Rotowire URL for Daily Lineups
-RW_URL = "https://www.rotowire.com/baseball/daily-lineups.php"
+# Causes data pull even if file exists
+REFRESH_DATA = int(os.environ['REFRESH_DATA'])
 
-def get_lineups():
-  url = RW_URL if TOMORROW_GAMES == 0 else RW_URL + '?date=tomorrow'
-  soup = BeautifulSoup(requests.get(url).content, "html.parser")
+# Game Windows for Prev Data Lookup
+WINDOWS = [162, 90, 30]
+YEARS = list(range(2024, 2026))
 
-  all_data = []
-  team_type = ''
-  current_game = {}  # Store home and away teams separately before merging
+# Set of features we will predict on
+RUNS_SCORED_FEAT_SET = [
+  'OBP_162',
+  'SLG_162',
+  'Strt_WHIP_35',
+  'Strt_TB_BB_perc_35',
+  'Strt_H_BB_perc_35',
+  'Strt_SO_perc_10',
+  'Bpen_WHIP_75',
+  'Bpen_TB_BB_perc_75',
+  'Bpen_SO_perc_75',
+  'Bpen_TB_BB_perc_35',
+  'lineup8_OBP_162',
+  'lineup8_SLG_162',
+  'lineup9_OBP_162',
+  'lineup9_SLG_162',
+  'home_hitting',
+  'Bpen_H_BB_perc_75',
+  'Bpen_WHIP_35',
+  'Bpen_H_BB_perc_35',
+  'Bpen_SO_perc_35',
+  'Bpen_WHIP_10',
+  'Bpen_TB_BB_perc_10',
+  'Bpen_H_BB_perc_10',
+  'Bpen_SO_perc_10'
+]
 
-  for e in soup.select('.lineup__box ul li'):
-    if team_type != e.parent.get('class')[-1]:
-      order_count = 1
-      team_type = e.parent.get('class')[-1]
-      if current_game:  
-        all_data.append(current_game)  # Save previous game before starting a new one
-      current_game = {}
-
-    if e.get('class') and 'lineup__player-highlight' in e.get('class'):
-      # Pitcher Data
-      if e.a is not None:
-        name = e.a.get_text(strip=True).split(' ')
-        f_name, l_name = name[0], name[-1]
-        pitcherid = playerid_lookup(l_name, f_name).get('key_retro')
-        suffix = "_h" if team_type == "is-home" else "_v"
-
-        # Check if pitcherid lookup returned a value
-        pitcherid = pitcherid.iloc[0] if isinstance(pitcherid, pd.Series) and not pitcherid.empty else ''
-        p_data = get_full_pitching_data(pitcherid, suffix) if pitcherid else pd.DataFrame()
-        
-        current_game.update({
-          'date': e.find_previous('main').get('data-gamedate'),
-          'game_time': e.find_previous('div', attrs={'class':'lineup__time'}).get_text(strip=True),
-          'team_h': e.find_previous('div', attrs={'class': 'lineup__team is-home'}).find_next('div', attrs={'class': 'lineup__abbr'}).get_text(strip=True),
-          #'team_h': e.find_previous('div', attrs={'class': 'is-home'}).next.strip(),
-          #'team_v': e.find_previous('div', attrs={'class': 'is-visit'}).next.strip(),
-          'team_v': e.find_previous('div', attrs={'class': 'lineup__team is-visit'}).find_next('div', attrs={'class': 'lineup__abbr'}).get_text(strip=True),
-          f'starting_pitcher_name{suffix}': e.a.get_text(strip=True),
-          f'starting_pitcher_id{suffix}': pitcherid,
-        })
-        
-        if not p_data.empty:
-          p_data_dict = p_data.to_dict(orient="records")[0]  # Convert first row to dict
-          current_game.update({f'Strt_{k}{suffix}': v for k, v in p_data_dict.items()})
-
-    elif e.get('class') and 'lineup__player' in e.get('class'):
-      if e.a is not None:
-        # Batter Data
-        name = e.a.get('title').split(' ')
-        f_name, l_name = name[0], name[-1]
-        batterid = playerid_lookup(l_name, f_name).get('key_retro')
-        suffix = "_h" if team_type == "is-home" else "_v"
-
-        # Check if batterid lookup returned a value
-        batterid = batterid.iloc[0] if isinstance(batterid, pd.Series) and not batterid.empty else ''
-        b_data = get_full_batting_data(batterid, order_count, suffix) if batterid else pd.DataFrame()
-
-        current_game.update({
-          f'batter{order_count}_name{suffix}': e.a.get_text(strip=True),
-          f'batter{order_count}_id{suffix}': batterid,
-          f'batter{order_count}_pos{suffix}': e.div.get_text(strip=True),
-        })
-        
-        if not b_data.empty:
-          b_data_dict = b_data.to_dict(orient="records")[0]  # Convert first row to dict
-          current_game.update({f'batter{order_count}_{k}{suffix}': v for k, v in b_data_dict.items()})
-
-        order_count += 1
-
-  if current_game:
-    all_data.append(current_game)  # Add last processed game
-
-  # Convert to DataFrame
-  final_df = pd.DataFrame(all_data)
-  
-  final_df['game_id'] = final_df['date'] + final_df['game_time'] + final_df['team_h'] + final_df['team_v']
-  
-  # Group by 'game_id' and aggregate data
-  merged_df = final_df.groupby('game_id').agg(agg_non_na).reset_index(drop=True)
-  
-  # Ensure 'date' column is in datetime format
-  merged_df['date'] = pd.to_datetime(merged_df['date'], errors='coerce')
-  
-  merged_df.reset_index(drop=True, inplace=True)
-
-  # Merge with the existing `df` based on common columns
-  return merged_df
-
-def agg_non_na(series):
-  return series.dropna().iloc[0] if not series.dropna().empty else None
+HOME_VICTORY_FEAT_SET = [
+  'OBP_162_h','OBP_162_v',
+  'SLG_162_h','SLG_162_v',
+  'Strt_WHIP_35_h','Strt_WHIP_35_v',
+  'Strt_TB_BB_perc_35_h', 'Strt_TB_BB_perc_35_v',
+  'Strt_H_BB_perc_35_h', 'Strt_H_BB_perc_35_v',
+  'Strt_SO_perc_10_h', 'Strt_SO_perc_10_v',
+  'Bpen_WHIP_75_h','Bpen_WHIP_75_v',
+  'Bpen_TB_BB_perc_75_h', 'Bpen_TB_BB_perc_75_v',
+  'Bpen_H_BB_perc_75_h', 'Bpen_H_BB_perc_75_v',
+  'Bpen_SO_perc_75_h', 'Bpen_SO_perc_75_v',
+  'Bpen_WHIP_35_h','Bpen_WHIP_35_v',
+  'Bpen_TB_BB_perc_35_h', 'Bpen_TB_BB_perc_35_v',
+  'Bpen_H_BB_perc_35_h', 'Bpen_H_BB_perc_35_v',
+  'Bpen_SO_perc_35_h', 'Bpen_SO_perc_35_v',
+  'Bpen_WHIP_10_h','Bpen_WHIP_10_v',
+  'Bpen_TB_BB_perc_10_h', 'Bpen_TB_BB_perc_10_v',
+  'Bpen_H_BB_perc_10_h', 'Bpen_H_BB_perc_10_v',
+  'Bpen_SO_perc_10_h', 'Bpen_SO_perc_10_v',
+  'lineup9_OBP_350_h','lineup9_OBP_350_v',
+  'lineup9_SLG_350_h','lineup9_SLG_350_v',
+  'lineup9_OBP_162_h','lineup9_OBP_162_v',
+  'lineup9_SLG_162_h','lineup9_SLG_162_v',
+  'lineup9_OBP_75_h','lineup9_OBP_75_v',
+  'lineup9_SLG_75_h','lineup9_SLG_75_v'
+]
 
 def predict_winner(X):
   # TODO: pull from Google Drive?
   with open('models/win_model.pkl', 'rb') as pickle_file:
     model = pickle.load(pickle_file)
-  return model.predict(X)
+  pred = model.predict(X)
+  prob = model.predict_proba(X)[:, 1]
+  return pred, prob
 
 def predict_runs_scored(X):
   # TODO: pull from Google Drive?
   with open('models/runs_scored_model.pkl', 'rb') as pickle_file:
     model = pickle.load(pickle_file)
-  return model.predict(X)
+  pred = model.predict(X)
+  probs = model.predict_proba(X)
+  return pred, probs
+
+def get_runs_scored_prob(probs, line):
+  line = pd.to_numeric(line, errors='coerce')
+  return probs[math.ceil(line):].sum() if not pd.isna(line) else -1
 
 def post_to_X():
   client = tweepy.Client(
@@ -153,37 +131,78 @@ def post_to_X():
   return 'Tweet Posted to @MoneyballVo!'
 
 def print_todays_slate(df):
-  print(f'\n{df.iloc[:, :4]}')
+  df = df.rename(columns={
+    'date_dblhead': 'Date',
+    'game_time': 'Time',
+    'team_h_full': 'Home',
+    'team_v_full': 'Visitor',
+    'starting_pitcher_name_h': 'Starter (H)',
+    'starting_pitcher_name_v': 'Starter (V)',
+    'moneyline': 'FD ML',
+    'odds': 'FD Odds',
+    'home_victory': 'Predict H Win',
+    'prob': 'Prob H Win'
+  })
+  print(f"\n{df.loc[:, ['Date', 'Time', 'Home', 'Visitor', 'Starter (H)', 'Starter (V)', 'FD ML', 'FD Odds', 'Predict H Win', 'Prob H Win']]}")
 
 def lambda_handler(event, context):
   print('--- TIME TO COOK 👨🏻‍🍳 ⚾️ 🚀 💰 ---')
 
   RUN_DATE = date.today() if TOMORROW_GAMES == 0 else date.today() + timedelta(days=1)
+
   print(f'\nGetting Starting Lineups for {RUN_DATE}')
-  df = get_lineups()
-  #df = pd.read_csv('data/2025-03-27_player_data.csv')
+  fname = f'data/daily/{RUN_DATE}_lineup_data.csv'
+  if os.path.exists(fname) and REFRESH_DATA != 1:
+    print(f'\nLoading Data From File: {fname}')
+    df = pd.read_csv(fname, index_col=False)
+  else:
+    print('\nGetting Fresh Data')
+    df = get_lineups()
+  
+  print(f'\nSaving Lineup Data to CSV')
+  df.to_csv(fname, index=False)
+  
+  print(f'\nGenerating Team Window Features')
+  df = generate_team_window_features(df)
+  
+  print(f'\nGetting Features for Run Total Predictions')
+  df_runs = get_run_total_feats(df)
+  df_runs = df_runs.drop_duplicates(subset=['date', 'team_h', 'team_v'])
+  
+  print(f'\nGetting Odds Data')
+  df['odds'] = None
+  df_runs['odds'] = None
+  df_runs['over_under_line'] = None
+  df_runs['over_under_ev'] = None
+  
+  df_runs['over_under_line'] = df.apply(lambda row: get_total_line(row['team_h_full']), axis=1)
+  df_runs['over_under_ev'] = df.apply(lambda row: get_total_ev(row['team_h_full']), axis=1)
+  df_runs['odds'] = df.apply(lambda row: get_total_odds(row['team_h_full']), axis=1)
+
+  df['odds'] = df.apply(lambda row: get_money_line(row['team_h_full']), axis=1)
+  df['moneyline'] = df.apply(lambda row: get_money_line_price(row['team_h_full']), axis=1)
+  
+  print(f'\nMaking Predictions')
+
+  df_runs['run_total'] = None
+  df_runs['prob'] = None
+
+  df['home_victory'] = None
+  df['prob'] = None
+  
+  df_runs['run_total'], run_total_probs = predict_runs_scored(df_runs.loc[:, RUNS_SCORED_FEAT_SET])
+  df_runs['prob'] = df_runs.apply(lambda row: get_runs_scored_prob(run_total_probs[row.name], row['over_under_line']), axis=1)
+
+  df['home_victory'], df['prob'] = predict_winner(df.loc[:, HOME_VICTORY_FEAT_SET])
   
   print_todays_slate(df)
   
-  print(f'\nSaving Player DataFrame to CSV')
-  df.to_csv(f'data/{RUN_DATE}_player_data.csv')
+  print(f'\nHOME VICTORY FEATS:\n{df.loc[:, HOME_VICTORY_FEAT_SET]}')
+  print(f'\nRUNS SCORED FEATS:\n{df_runs.loc[:, RUNS_SCORED_FEAT_SET]}')
   
-  #TODO: Add 10/35/75/162 Rolling Windows Data for Pitchers & Batters
-
-  print(f'\nGetting Odds Data')
-  df['odds'] = None # init as empty column
-  #df['odds'] = df.apply(lambda row: get_odds(row['team_h'], row['date']), axis=1)
-  
-  print(df.head())
-  
-  
-  print(f'\nMaking Predictions')
-  df['predict_runs_scored'] = None # init as empty column
-  df['home_victory'] = None # init as empty column
-  #df['predict_runs_scored'] = df.apply(predict_runs_scored, axis=1)
-  #df['home_victory'] = df.apply(predict_winner, axis=1)
-  
-
+  print(f'\nSaving Predictions DataFrames to CSV')
+  df.loc[:, ['date', 'game_time', 'team_h', 'team_v', 'odds', 'prob', 'home_victory']].to_csv(f'data/daily/{RUN_DATE}_home_victory_preds.csv')
+  df_runs.loc[:, ['date', 'game_time', 'team_h', 'team_v', 'over_under_line', 'odds', 'prob', 'run_total', 'over_under_ev']].to_csv(f'data/daily/{RUN_DATE}_run_total_preds.csv')
   
   print(f'\nPosting picks to X')
   #post_to_X()
