@@ -54,8 +54,8 @@ def line_to_bet(implied_prob, advantage=0.04):
   else:  # Underdog case (positive line)
     new_line = 100 * target_prob / (1 - target_prob)
 
-  rounded_line = math.floor(new_line)
-  return 100 if -99 <= rounded_line <= 99 else rounded_line
+  rounded_line = None if pd.isna(new_line) else math.floor(new_line)
+  return None if rounded_line is None else 100 if -99 <= rounded_line <= 99 else rounded_line
 
 def extract_total_odds(data):
   extracted_data = {}

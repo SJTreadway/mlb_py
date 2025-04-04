@@ -270,10 +270,7 @@ def get_lineup_averages(df):
                 for hv in ['_h','_v'] for i in range(1,10)]
   for col in newcols89:
     stem = col.split('_')[0].lower()
-    if stem in default_dict.get('p', {}):  # Ensure key exists
-      df[col] = default_dict['p'][stem]  
-    else:
-      df[col] = np.nan  # Assign NaN if stem not found
+    df[col].fillna(default_dict['p'][stem])
 
   w9 = np.array([0.12541131, 0.12159052, 0.11787189, 0.11434144, 0.11096691,
       0.10772781, 0.10430724, 0.10078822, 0.09699465])
