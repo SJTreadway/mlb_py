@@ -27,7 +27,7 @@ def process_pitching_data(df):
 
 # Get data for each starting pitcher and store to csv
 def load_pitching_data(start_pitchers_all):
-  for p_id in start_pitchers_all:
+  for p_id in tqdm(start_pitchers_all):
     if p_id:
       df_temp = get_full_pitching_data(p_id)
       fname_out = 'data/pitch/pitching_data_'+p_id+'.csv'
@@ -229,7 +229,7 @@ def get_rolling_pitching_feats(df, start_pitchers_all):
   cols_to_add = ['Strt_'+col+suff for col in raw_cols_to_add for suff in ['_h','_v']]
   col_add_dict = {col:np.zeros(df.shape[0]) for col in cols_to_add}
   
-  for i in tqdm(range(df.shape[0])):
+  for i in range(df.shape[0]):
     row = df.iloc[i,:]
     sp_id_v = row['starting_pitcher_id_v']
     sp_id_h = row['starting_pitcher_id_h']

@@ -40,7 +40,7 @@ def get_full_batting_data(batter_id):
   return df_batting
 
 def load_batting_data(batter_ids):
-  for i,b_id in tqdm(enumerate(batter_ids)):
+  for i,b_id in tqdm(enumerate(batter_ids), total=len(batter_ids)):
     if b_id:
       df_temp = get_full_batting_data(b_id)
       fname_out = 'data/bat/batting_data_'+b_id+'.csv'
@@ -128,7 +128,7 @@ def process_batter_df(b_id):
     t_col = batter_df['dblhead_num'].copy()
     t_col[np.isnan(t_col)] = 0
     batter_df['dblheader_int'] = t_col.astype(int)
-    for winsize in [30,75,162,350]:
+    for winsize in WINDOWS:
       suff = str(winsize)
       for raw_col in ['AB','BB','H','x2B','x3B','HR','HBP','SO','SB','CS']:
         new_col = 'rollsum_'+raw_col+'_'+suff
@@ -221,7 +221,7 @@ def get_batting_feats(df, batter_ids):
     batter_data_dict[b_id] = process_batter_df(b_id) 
   new_col_dict = {}
   colstems = ['BATAVG', 'OBP', 'SLG', 'OBS', 'SLGmod','SObat_perc']
-  new_col_list = [stem+'_'+str(winsize)+'_b'+str(i)+hv   for stem in colstems for winsize in WINDOWS
+  new_col_list = [stem+'_'+str(winsize)+'_b'+str(i)+hv for stem in colstems for winsize in WINDOWS
                   for i in range(1,10) for hv in ['_h','_v']]
   for col in new_col_list:
     new_col_dict[col] = np.empty(df.shape[0])

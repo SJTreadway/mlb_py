@@ -41,10 +41,6 @@ TOMORROW_GAMES = int(os.environ['TOMORROW_GAMES'])
 # Causes data pull even if file exists
 REFRESH_DATA = int(os.environ['REFRESH_DATA'])
 
-# Game Windows for Prev Data Lookup
-WINDOWS = [162, 90, 30]
-YEARS = list(range(2024, 2026))
-
 # Set of features we will predict on
 RUNS_SCORED_FEAT_SET = [
   'OBP_162',
@@ -100,7 +96,6 @@ HOME_VICTORY_FEAT_SET = [
 ]
 
 def predict_winner(X):
-  # TODO: pull from Google Drive?
   with open('models/win_model.pkl', 'rb') as pickle_file:
     model = pickle.load(pickle_file)
   pred = model.predict(X)
@@ -108,7 +103,6 @@ def predict_winner(X):
   return pred, prob
 
 def predict_runs_scored(X):
-  # TODO: pull from Google Drive?
   with open('models/runs_scored_model.pkl', 'rb') as pickle_file:
     model = pickle.load(pickle_file)
   pred = model.predict(X)
@@ -163,53 +157,51 @@ def lambda_handler(event, context):
   fname = f'data/daily/{RUN_DATE}_lineup_data.csv'
   if os.path.exists(fname) and REFRESH_DATA != 1:
     print(f'\nLoading Data From File: {fname}')
-    df = pd.read_csv(fname, index_col=False)
+    lineup_w_pitching_batting_df = pd.read_csv(fname, index_col=False)
   else:
     print('\nLoading Lineup Data')
     df = get_lineups()
+    # Get/Store Starting Pitching Data to Files
+    print('\nLoading Pitching Data')
+    lineup_w_pitching_df = process_pitching_data(df)
     
-  # Get/Store Starting Pitching Data to Files
-  print('\nLoading Pitching Data')
-  lineup_w_pitching_df = process_pitching_data(df)
+    # Add Batting Data
+    print('\nLoading Batting Data')
+    lineup_w_pitching_batting_df = process_batting_data(lineup_w_pitching_df)
+    
+    print(f'\nSaving Lineup Data to CSV')
+    lineup_w_pitching_batting_df.to_csv(fname, index=False)
   
-  # Add Batting Data
-  print('\nLoading Batting Data')
-  lineup_w_pitching_batting_df = process_batting_data(lineup_w_pitching_df)
-  
-  print(lineup_w_pitching_batting_df.head(5))
-  
-  print(f'\nSaving Lineup Data to CSV')
-  #df.to_csv(fname, index=False)
-  
-  print(f'\nGenerating Team Window Features')
-  #df = generate_team_window_features(df)
+  print(f'\nLoading Team Data')
+  lineup_w_pitching_batting_team_df = generate_team_window_features(lineup_w_pitching_batting_df)
   
   print(f'\nGetting Features for Run Total Predictions')
-  #df_runs = get_run_total_feats(df)
-  #df_runs = df_runs.drop_duplicates(subset=['date', 'team_h', 'team_v'])
+  df_runs = get_run_total_feats(lineup_w_pitching_batting_team_df)
+  df_runs.drop_duplicates(subset=['date_dblhead', 'team_h', 'team_v'], inplace=True)
   
   print(f'\nGetting Odds Data')
-  df['odds'] = df.apply(lambda row: get_money_line(row['team_h_full']), axis=1)
-  df['moneyline'] = df.apply(lambda row: get_money_line_price(row['team_h_full']), axis=1)
+  lineup_w_pitching_batting_team_df['odds'] = lineup_w_pitching_batting_team_df.apply(lambda row: get_money_line(row['team_h_full']), axis=1)
+  lineup_w_pitching_batting_team_df['moneyline'] = lineup_w_pitching_batting_team_df.apply(lambda row: get_money_line_price(row['team_h_full']), axis=1)
 
-  #df_runs['odds'] = df.apply(lambda row: get_total_odds(row['team_h_full']), axis=1)
-  #df_runs['over_under_line'] = df.apply(lambda row: get_total_line(row['team_h_full']), axis=1)
-  #df_runs['over_under_ev'] = df.apply(lambda row: get_total_ev(row['team_h_full']), axis=1)
+  df_runs['odds'] = lineup_w_pitching_batting_team_df.apply(lambda row: get_total_odds(row['team_h_full']), axis=1)
+  df_runs['over_under_line'] = lineup_w_pitching_batting_team_df.apply(lambda row: get_total_line(row['team_h_full']), axis=1)
+  #df_runs['over_under_ev'] = lineup_w_pitching_batting_team_df.apply(lambda row: get_total_ev(row['team_h_full']), axis=1)
 
   print(f'\nMaking Predictions')
-  df['home_victory'], df['prob'] = predict_winner(df.loc[:, HOME_VICTORY_FEAT_SET])
+  lineup_w_pitching_batting_team_df['home_victory'], lineup_w_pitching_batting_team_df['prob'] = predict_winner(lineup_w_pitching_batting_df.loc[:, HOME_VICTORY_FEAT_SET])
 
-  #df_runs['run_total'], run_total_probs = predict_runs_scored(df_runs.loc[:, RUNS_SCORED_FEAT_SET])
-  #df_runs['prob'] = df_runs.apply(lambda row: get_runs_scored_prob(run_total_probs[row.name], row['over_under_line']), axis=1)
+  df_runs['run_total'], run_total_probs = predict_runs_scored(df_runs.loc[:, RUNS_SCORED_FEAT_SET])
+  df_runs = df_runs.reset_index(drop=True)
+  df_runs['prob'] = df_runs.apply(lambda row: get_runs_scored_prob(run_total_probs[row.name], row['over_under_line']), axis=1)
 
-  print_todays_slate(df)
+  print_todays_slate(lineup_w_pitching_batting_team_df)
   
-  print(f'\nHOME VICTORY FEATS:\n{df.loc[:, HOME_VICTORY_FEAT_SET]}')
+  #print(f'\nHOME VICTORY FEATS:\n{lineup_w_pitching_batting_team_df.loc[:, HOME_VICTORY_FEAT_SET]}')
   #print(f'\nRUNS SCORED FEATS:\n{df_runs.loc[:, RUNS_SCORED_FEAT_SET]}')
   
   print(f'\nSaving Predictions DataFrames to CSV')
-  df.loc[:, ['date_dblhead', 'game_time', 'team_h', 'team_v', 'odds', 'prob', 'home_victory']].to_csv(f'data/daily/{RUN_DATE}_home_victory_preds.csv', index=False)
-  #df_runs.loc[:, ['date_dblhead', 'game_time', 'team_h', 'team_v', 'over_under_line', 'odds', 'prob', 'run_total', 'over_under_ev']].to_csv(f'data/daily/{RUN_DATE}_run_total_preds.csv', index=False)
+  lineup_w_pitching_batting_team_df.loc[:, ['date_dblhead', 'game_time', 'team_h', 'team_v', 'odds', 'prob', 'home_victory']].to_csv(f'data/results/{RUN_DATE}_home_victory_preds.csv', index=False)
+  df_runs.loc[:, ['date_dblhead', 'game_time', 'team_h', 'team_v', 'over_under_line', 'odds', 'prob', 'run_total']].to_csv(f'data/results/{RUN_DATE}_run_total_preds.csv', index=False)
   
   print(f'\nPosting picks to X')
   #post_to_X()

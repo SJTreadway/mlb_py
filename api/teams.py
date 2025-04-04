@@ -4,6 +4,8 @@ import numpy as np
 
 from helpers import strip_suffix, agg_non_na
 
+from tqdm import tqdm
+
 pd.set_option('display.max_columns',1000)
 pd.set_option('display.max_rows',1000)
               
@@ -20,42 +22,6 @@ TEAMS = [
 
 # Game Windows for Prev Data Lookup
 WINDOWS = [162, 90, 30]
-YEARS = list(range(2024, 2026))
-
-def get_game_data_by_team(team, stat_type):
-  game_df = pd.DataFrame()
-  for year in YEARS:
-    temp_df = pd.DataFrame()
-    try:
-      temp_df = team_game_logs(year, team, stat_type)
-      temp_df['Team'] = team
-      temp_df['Season'] = year
-      game_df = pd.concat((game_df, temp_df))
-      print(f'Game {stat_type} data loaded for {team} in {year}')
-    except RuntimeError as error:
-      print(f'Unable to load game {stat_type} data for {team} in {year}')
-  return game_df
-
-def get_all_teams_data():
-  for team in TEAMS:
-    for stat_type in ['pitching', 'batting']:
-      game_df = get_game_data_by_team(team, stat_type)
-      game_df.to_csv(f'data/raw/{team}_{stat_type}.csv')
-      print(f'**Game {stat_type} data written to csv for {team}**')
-      
-def get_prev_years_data():
-  event_df = pd.DataFrame()
-  for year in YEARS:
-    try:
-      temp_df = season_game_logs(year)
-      temp_df['season'] = year
-      event_df = pd.concat((event_df, temp_df))
-      print(f'Event data loaded for {year}')
-    except ValueError as error:
-      print(error)
-
-  event_df.to_csv('data/raw/retrosheet_events.csv')
-  
 
 def get_team_cols(df):
   visiting_cols = [col for col in df.columns if not col.endswith('_h')]
@@ -67,6 +33,9 @@ def get_team_cols(df):
 # create team dataframe to easily aggregate rolling window game data
 def create_team_df(df, team):
   cols = ['AB', 'H', 'x2B', 'x3B', 'HR', 'BB', 'SB', 'CS']
+  for c in cols:
+    df[c] = np.nan
+
   cols_w_idx = cols + ['date_dblhead']
 
   df_team_v = df[(df.team_v == team)]
@@ -120,7 +89,7 @@ def generate_team_window_features(df):
   arrays = {f"{stat}_{window}_{team}": np.zeros(df.shape[0]) for stat in stats for window in WINDOWS for team in teams}
 
   # Populate the arrays
-  for i, (index, row) in enumerate(df.iterrows()):
+  for i, (index, row) in tqdm(enumerate(df.iterrows()), total=len(df)):
     home_team = row['team_h']
     visit_team = row['team_v']
     game_index = row['date_dblhead']

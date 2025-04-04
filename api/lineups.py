@@ -74,7 +74,6 @@ def get_lineups():
         
         # Check if pitcherid lookup returned a value
         pitcherid = pitcherid.iloc[0] if isinstance(pitcherid, pd.Series) and not pitcherid.empty else ''
-        #p_data = get_full_pitching_data(pitcherid) if pitcherid else pd.DataFrame()
         
         current_game.update({
           #'date': date,
@@ -112,12 +111,6 @@ def get_lineups():
           f'starting_pitcher_id{suffix}': pitcherid,
         })
         
-        '''
-        if not p_data.empty:
-          p_data_dict = p_data.to_dict(orient="records")[0]  # Convert first row to dict
-          current_game.update(p_data_dict)
-        '''
-
     elif e.get('class') and 'lineup__player' in e.get('class'):
       if e.a is not None:
         # Batter Data
@@ -128,7 +121,6 @@ def get_lineups():
 
         # Check if batterid lookup returned a value
         batterid = batterid.iloc[0] if isinstance(batterid, pd.Series) and not batterid.empty else ''
-        #b_data = get_full_batting_data(batterid) if batterid else pd.DataFrame()
 
         current_game.update({
           f'batter{order_count}_name{suffix}': e.a.get_text(strip=True),
@@ -136,12 +128,6 @@ def get_lineups():
           f'batter{order_count}_pos{suffix}': e.div.get_text(strip=True)
         })
         
-        '''
-        if b_data is not None and not b_data.empty:
-          b_data_dict = b_data.to_dict(orient="records")[0]  # Convert first row to dict
-          current_game.update(b_data_dict)
-        '''
-
         order_count += 1
 
   if current_game:
@@ -197,8 +183,8 @@ def get_run_total_feats(df):
   df_b.columns = final_col_list
   df_runs = pd.concat((df_a,df_b))
   
-  df_runs.set_index('date_dblhead', inplace=True)
-  df_runs.sort_values('date_dblhead', ascending=False, inplace=True)
+  df_runs['game_id'] = df_runs['date_dblhead'].astype(str) + df_runs['team_h'] + df_runs['team_v']
+  df_runs.set_index('game_id', inplace=True)
 
   return df_runs
   
