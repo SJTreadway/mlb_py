@@ -1,3 +1,4 @@
+import math
 import os
 import json
 import pandas as pd
@@ -17,35 +18,44 @@ def line_to_prob(line):
       return -1
   if line < 0:
     # For negative lines, calculate the implied probability
-    imp_prob = abs(line) / (abs(line) + 100)
+    imp_prob = line / (line + 100)
   else:
     # For positive lines, calculate the implied probability
     imp_prob = 100 / (line + 100)
   return imp_prob
 
-def line_to_bet(line, advantage=0.04):
-  if line is None:
+def prob_to_line(prob):
+  if prob <= 0 or prob >= 1:
+    return None  # invalid probability
+
+  if prob > 0.5:
+    # Favorite → negative line
+    line = -100 * (prob / (1 - prob))
+  else:
+    # Underdog → positive line
+    line = 100 * ((1 - prob) / prob)
+
+  return None if pd.isna(line) else line
+
+def line_to_bet(implied_prob, advantage=0.04):
+  if implied_prob is None:
     return -1
-  # Convert line to implied probability
-  implied_prob = line_to_prob(line)
 
   # Adjust the probability by the desired advantage
   # Ensure the target probability is within a valid range
-  if line < 0:
-    target_prob = implied_prob + advantage
-  else:
+  if implied_prob > 0.5:
     target_prob = implied_prob - advantage
-  
-  # Ensure target probability stays within valid range [0, 1]
-  target_prob = max(0.01, min(0.99, target_prob))  # Avoid invalid probabilities (exact 0 or 1)
+  else:
+    target_prob = implied_prob + advantage
   
   # Convert adjusted probability back to line
-  if line < 0:  # Favorite case (negative line)
+  if implied_prob > 0.5:  # Favorite case (negative line)
     new_line = -100 * (1 - target_prob) / target_prob
   else:  # Underdog case (positive line)
     new_line = 100 * target_prob / (1 - target_prob)
 
-  return new_line
+  rounded_line = math.floor(new_line)
+  return 100 if -99 <= rounded_line <= 99 else rounded_line
 
 def extract_total_odds(data):
   extracted_data = {}
@@ -87,12 +97,8 @@ def extract_total_odds(data):
         "over_under_line": over_under_line,
         "spread_line": spread_line,
         "moneyline_price": moneyline_price,
-        "moneyline": line_to_prob(moneyline_price),
         "over_under_price": line_to_prob(over_under_price),
-        "spread_price": line_to_prob(spread_price),
-        "over_under_ev": line_to_bet(over_under_price),
-        "spread_ev": line_to_bet(spread_price),
-        "moneyline_ev": line_to_bet(moneyline_price)
+        "spread_price": line_to_prob(spread_price)
       }
   return extracted_data
 
@@ -112,14 +118,6 @@ def get_money_line_price(team):
   res = get_odds_results().get(get_stripped_team_val(team), 'Not Found')
   return res if res == 'Not Found' else res['moneyline_price']
 
-def get_money_line(team):
-  res = get_odds_results().get(get_stripped_team_val(team), 'Not Found')
-  return res if res == 'Not Found' else res['moneyline']
-
-def get_money_line_ev(team):
-  res = get_odds_results().get(team, 'Not Found')
-  return res if res == 'Not Found' else res['moneyline_ev']
-
 def get_total_odds(team):
   res = get_odds_results().get(team, 'Not Found')
   return res if res == 'Not Found' else res['over_under_price']
@@ -128,10 +126,6 @@ def get_total_line(team):
   res = get_odds_results().get(team, 'Not Found')
   return res if res == 'Not Found' else res['over_under_line']
 
-def get_total_ev(team):
-  res = get_odds_results().get(team, 'Not Found')
-  return res if res == 'Not Found' else res['over_under_ev']
-
 def get_spread_line(team):
   res = get_odds_results().get(team, 'Not Found')
   return res if res == 'Not Found' else res['spread_line']
@@ -139,10 +133,6 @@ def get_spread_line(team):
 def get_spread_odds(team):
   res = get_odds_results().get(team, 'Not Found')
   return res if res == 'Not Found' else res['spread_price']
-
-def get_spread_ev(team):
-  res = get_odds_results().get(team, 'Not Found')
-  return res if res == 'Not Found' else res['spread_ev']
 
 def get_stripped_team_val(team):
   return " ".join(team.split()[-2:]) if team.split()[-1] in ['Sox', 'Jays'] else team.split()[-1]

@@ -14,10 +14,9 @@ import pickle
 
 from api.teams import generate_team_window_features
 from api.lineups import get_lineups, get_run_total_feats
-from api.odds import get_total_odds, get_total_line, get_total_ev, get_money_line, get_money_line_price
+from api.odds import get_total_odds, get_total_line, get_money_line_price, line_to_bet
 from api.pitchers import process_pitching_data
 from api.batters import process_batting_data
-
 
 import tweepy
 
@@ -133,18 +132,17 @@ def print_todays_slate(df):
     'game_time': 'Time',
     'team_h_full': 'Home',
     'team_v_full': 'Visitor',
-    'starting_pitcher_name_h': 'Starter (H)',
-    'starting_pitcher_name_v': 'Starter (V)',
+    'starting_pitcher_name_h': 'Probable Starter (H)',
+    'starting_pitcher_name_v': 'Probable Starter (V)',
     'moneyline': 'ML (H)',
-    'odds': 'Odds (H)',
-    'home_victory': 'Predict Win (H)',
-    'prob': 'Prob Win (H)'
+    'prob': 'Prob Win (H)',
+    'moneyline_value_line': 'Line to Bet (H)'
   })
   df.sort_values('Time', ascending=True, inplace=True)
   cols = [
-    'Date', 'Time', 'Visitor', 'Starter (V)', 
-    'Home', 'Starter (H)', 'ML (H)', 'Odds (H)', 
-    'Predict Win (H)', 'Prob Win (H)'
+    'Date', 'Time', 'Visitor', 'Probable Starter (V)', 
+    'Home', 'Probable Starter (H)', 'ML (H)', 'Line to Bet (H)',
+    'Prob Win (H)'
   ]
   print(f"\n{df.loc[:,cols]}")
 
@@ -181,18 +179,18 @@ def lambda_handler(event, context):
   df_runs.reset_index(drop=True, inplace=True)
   
   print(f'\nGetting Odds Data')
-  lineup_w_pitching_batting_team_df['odds'] = lineup_w_pitching_batting_team_df.apply(lambda row: get_money_line(row['team_h_full']), axis=1)
   lineup_w_pitching_batting_team_df['moneyline'] = lineup_w_pitching_batting_team_df.apply(lambda row: get_money_line_price(row['team_h_full']), axis=1)
 
   df_runs['odds'] = lineup_w_pitching_batting_team_df.apply(lambda row: get_total_odds(row['team_h_full']), axis=1)
   df_runs['over_under_line'] = lineup_w_pitching_batting_team_df.apply(lambda row: get_total_line(row['team_h_full']), axis=1)
-  #df_runs['over_under_ev'] = lineup_w_pitching_batting_team_df.apply(lambda row: get_total_ev(row['team_h_full']), axis=1)
 
   print(f'\nMaking Predictions')
   lineup_w_pitching_batting_team_df['home_victory'], lineup_w_pitching_batting_team_df['prob'] = predict_winner(lineup_w_pitching_batting_df.loc[:, HOME_VICTORY_FEAT_SET])
+  lineup_w_pitching_batting_team_df['moneyline_value_line'] = lineup_w_pitching_batting_team_df.apply(lambda row: line_to_bet(row['prob']), axis=1)
 
   df_runs['run_total'], run_total_probs = predict_runs_scored(df_runs.loc[:, RUNS_SCORED_FEAT_SET])
   df_runs['prob'] = df_runs.apply(lambda row: get_runs_scored_prob(run_total_probs[row.name], row['over_under_line']), axis=1)
+  df_runs['over_under_value_line'] = df_runs.apply(lambda row: line_to_bet(row['prob']), axis=1)
 
   print_todays_slate(lineup_w_pitching_batting_team_df)
   
@@ -200,8 +198,8 @@ def lambda_handler(event, context):
   #print(f'\nRUNS SCORED FEATS:\n{df_runs.loc[:, RUNS_SCORED_FEAT_SET]}')
   
   print(f'\nSaving Predictions DataFrames to CSV')
-  lineup_w_pitching_batting_team_df.loc[:, ['date_dblhead', 'game_time', 'team_h', 'team_v', 'odds', 'prob', 'home_victory']].to_csv(f'data/results/{RUN_DATE}_home_victory_preds.csv', index=False)
-  df_runs.loc[:, ['date_dblhead', 'game_time', 'team_h', 'team_v', 'over_under_line', 'odds', 'prob', 'run_total']].to_csv(f'data/results/{RUN_DATE}_run_total_preds.csv', index=False)
+  lineup_w_pitching_batting_team_df.loc[:, ['date_dblhead', 'game_time', 'team_h_full', 'team_v_full', 'prob', 'moneyline', 'moneyline_value_line']].to_csv(f'data/results/{RUN_DATE}_home_victory_preds.csv', index=False)
+  df_runs.loc[:, ['date_dblhead', 'game_time', 'team_h_full', 'team_v_full', 'over_under_line', 'odds', 'prob', 'run_total']].to_csv(f'data/results/{RUN_DATE}_run_total_preds.csv', index=False)
   
   print(f'\nPosting picks to X')
   #post_to_X()
