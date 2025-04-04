@@ -1,13 +1,39 @@
+import os
 import numpy as np
 import pandas as pd
 
 from bs4 import BeautifulSoup
 import requests
 
+from tqdm import tqdm
+
 from helpers import roll_column, strip_suffix
 
 URL_PREFIX = 'https://www.retrosheet.org/boxesetc/'
 WINDOWS = [10,35,75]
+
+def process_pitching_data(df):
+  start_pitchers_h = df.starting_pitcher_id_h.unique()
+  start_pitchers_v = df.starting_pitcher_id_v.unique()
+  start_pitchers_all = np.union1d(start_pitchers_h, start_pitchers_v)
+
+  # step 1: get pitching data for all starting pitchers and store to csv
+  get_pitching_data(start_pitchers_all)
+  
+  # step 2: load data from files and store into dataframe
+  strt_pitch_df = get_rolling_pitching_feats(df, start_pitchers_all)
+  
+  return get_bullpen_data(strt_pitch_df)
+
+# Get data for each starting pitcher and store to csv
+def get_pitching_data(start_pitchers_all):
+  for p_id in start_pitchers_all:
+    if p_id:
+      df_temp = get_full_pitching_data(p_id)
+      # may want to modify below to save to a dedicated folder
+      fname_out = 'data/pitch/pitching_data_'+p_id+'.csv'
+      if not os.path.exists(fname_out):
+        df_temp.to_csv(fname_out, index=False)
 
 # Get all the data for a particular pitcher
 def get_full_pitching_data(pitcher_id):
@@ -73,16 +99,34 @@ def get_season_pitching_data(url):
   pitch_df = pd.DataFrame(main_data_matrix, columns = mod_header)
   pitch_df['date'] = date_list
   pitch_df['dblhead_num'] = dblhead_num_list
+  return pitch_df
   
-  pitch_df['date'] = pd.to_datetime(pitch_df['date'], format='%m-%d-%Y').dt.strftime('%Y%m%d').astype(int)
-  pitch_df['dblhead_num'] = pitch_df['dblhead_num'].apply(lambda x: int(x) if str(x).strip().isdigit() else 0)
+def load_and_process_pitch_df(p_id, filepath=''):
+  if not p_id:
+    return pd.DataFrame()
 
-  # Convert IP to proper mathematical format
-  ip = float(pitch_df['IP'][0])
-  pitch_df['IP_real'] = (ip - (ip % 1)) + (ip % 1) * (10/3)
-  cols_to_agg = ['IP_real', 'H','BFP', 'HR', 'R', 'ER', 'BB', 'IB', 'SO', 'SH', 'SF', 'WP', 'HBP', 'BK', 'x2B', 'x3B']
+  fname = filepath+'pitching_data_'+p_id+'.csv'
+  pitch_df = pd.read_csv(fname)
   
-  # defaults for pitching
+  # Convert date, fix dblhead_num to be 0,1,2
+  pitch_df['date'] = (
+      pd.to_datetime(pitch_df['date'], format='mixed', errors='coerce')
+        .dt.strftime('%Y%m%d')
+        .astype(int)
+  )
+  pitch_df.dblhead_num.fillna(0, inplace=True)
+  pitch_df['dblhead_num'] = pitch_df['dblhead_num'].astype(int)
+  
+  # Convert IP to proper mathematical format
+  pitch_df['IP_real'] = (pitch_df.IP - (pitch_df.IP % 1)) + (pitch_df.IP % 1) * (10/3)
+  
+  cols_to_agg = ['IP_real', 'H','BFP', 'HR', 'R', 'ER', 'BB', 'IB', 'SO', 'SH', 'SF', 'WP', 'HBP', 'BK',
+      'x2B', 'x3B']
+  for winsize in WINDOWS:
+    for raw_col in cols_to_agg:
+      new_colname = 'rollsum_'+raw_col+'_'+str(winsize)        
+      pitch_df[new_colname] = roll_column(pitch_df, raw_col, winsize)
+    
   er_per_ip_def = (5/9)
   h_bb_per_ip_def = 1.5
   h_bb_per_bf_def = .37
@@ -94,10 +138,6 @@ def get_season_pitching_data(url):
   fip_numer_per_bf_def = .03*13 + .37*3 - 2*.2
 
   for winsize in WINDOWS:
-    for raw_col in cols_to_agg:
-      new_colname = 'rollsum_'+raw_col+'_'+str(winsize)        
-      pitch_df[new_colname] = roll_column(pitch_df, raw_col, winsize)
-
     hit_col = 'rollsum_H_'+str(winsize)
     bb_col = 'rollsum_BB_'+str(winsize)
     h_bb_col = 'H_BB_roll_'+str(winsize)
@@ -147,9 +187,15 @@ def get_season_pitching_data(url):
     pitch_df[so_perc_col] = pitch_df[so_mod_col]/pitch_df[bf_mod_col]
     pitch_df[tb_bb_perc_col] = pitch_df[tb_bb_mod_col]/pitch_df[bf_mod_col]
     pitch_df[h_bb_perc_col] = pitch_df[h_bb_mod2_col]/pitch_df[bf_mod_col]
-
   pitch_df['date_dblhead'] = (pitch_df['date'].astype(str) + pitch_df['dblhead_num'].astype(str)).astype(int)
+  pitch_df.set_index('date_dblhead', inplace=True)
+  return pitch_df 
     
+def get_rolling_pitching_feats(df, start_pitchers_all):
+  pitcher_data_dict = {}
+  for p_id in start_pitchers_all:
+    pitcher_data_dict[p_id] = load_and_process_pitch_df(p_id,'data/pitch/')
+
   raw_cols_to_add = ['GS',  'IP',
       'H', 'BFP', 'HR', 'R', 'ER', 'BB', 'IB', 'SO', 'SH', 'SF', 'WP',
       'HBP', 'BK', 'x2B', 'x3B', 'IP_real', 'rollsum_IP_real_10', 'rollsum_H_10',
@@ -184,50 +230,69 @@ def get_season_pitching_data(url):
       'H_BB_perc_75']
 
   cols_to_add = ['Strt_'+col+suff for col in raw_cols_to_add for suff in ['_h','_v']]
-
-  col_add_dict = {col:np.zeros(pitch_df.shape[0]) for col in cols_to_add}
+  col_add_dict = {col:np.zeros(df.shape[0]) for col in cols_to_add}
+  
+  for i in tqdm(range(df.shape[0])):
+    row = df.iloc[i,:]
+    sp_id_v = row['starting_pitcher_id_v']
+    sp_id_h = row['starting_pitcher_id_h']
+    date_dblhead = row['date_dblhead']
+    if sp_id_v in pitcher_data_dict.keys():
+      curr_df = pitcher_data_dict[sp_id_v]
+      if date_dblhead in curr_df.index:
+        for col in raw_cols_to_add:
+          value = curr_df.loc[date_dblhead,col]
+          col_add_dict['Strt_'+col+'_v'][i] = value
+    if sp_id_h in pitcher_data_dict.keys():
+      curr_df = pitcher_data_dict[sp_id_h]
+      if date_dblhead in curr_df.index:
+        for col in raw_cols_to_add:
+          value = curr_df.loc[date_dblhead,col]
+          col_add_dict['Strt_'+col+'_h'][i] = value
   
   for col in cols_to_add:
-    pitch_df[col] = col_add_dict[col]
+    df[col] = col_add_dict[col]
   
-  pitch_df.set_index('date_dblhead', inplace=True)
-  pitch_df.drop(['at_vs', 'Opponent', 'League'], axis=1, inplace=True)
+  return df
+  
+def get_bullpen_team_df(team, df):
+  visit_cols = [col for col in df.columns if not col.endswith('_h')]
+  visit_cols_stripped = [strip_suffix(col,'_v') for col in visit_cols]
+  home_cols = [col for col in df.columns if not col.endswith('_v')]
+  home_cols_stripped = [strip_suffix(col,'_h') for col in home_cols]    
+  df_team_v = df[(df.team_v==team)]
+  opponent = df_team_v['team_h']
+  df_team_v = df_team_v[visit_cols]
+  df_team_v.columns = visit_cols_stripped
+  df_team_v['home_game'] = 0
+  df_team_v['opponent'] = opponent
 
-  return pitch_df
+  df_team_h = df[(df.team_h==team)]
+  opponent = df_team_h['team_v']
+  df_team_h = df_team_h[home_cols]
+  df_team_h.columns = home_cols_stripped
+  df_team_h['home_game'] = 1
+  df_team_h['opponent'] = opponent
   
-def get_bullpen_data_per_team(df):
-  # Team Bullpen Average Data
-  ## Calculate some game level stats, specifically about
-  ## relative stats for starting pitcher vs bullpen
-  df['Bpen_IP'] = 9.0-df['IP_real']
-  df['Bpen_BFP'] = df['AB_v']+df['BB_v']+df['HBP_v']-df['Strt_BFP_h']
-  df['Bpen_R'] = df['R_v']-df['Strt_R_h']
-  df['Bpen_H'] = df['H_v']-df['Strt_H_h']
-  df['Bpen_HR'] = df['HR_v']-df['Strt_HR_h']
-  df['Bpen_x2B'] = df['x2B_v']-df['Strt_x2B_h']
-  df['Bpen_x3B'] = df['x3B_v']-df['Strt_x3B_h']
-  df['Bpen_BB'] = df['BB_v']-df['Strt_BB_h']
-  df['Bpen_HBP'] = df['HBP_v']-df['Strt_HBP_h']
-  df['Bpen_SO'] = df['SO_v']-df['Strt_SO_h']
+  df_team = df_team_h if not df_team_h.empty else df_team_v
+  df_team.sort_values(['date_dblhead'],inplace=True)
   
+  # defaults for pitching
   er_per_ip_def = (5/9)
   h_bb_per_ip_def = 1.5
   h_bb_per_bf_def = .37
   so_per_bf_def = .2
-  ip_per_game_def = 2
-  bf_per_game_def = 6
+  ip_per_game_def = 3
+  bf_per_game_def = 12
   tb_bb_perc_def = .45
 
   cols_to_agg = ['IP', 'H','BFP', 'HR', 'R',  'BB', 'SO',  'HBP', 'x2B', 'x3B']
-  for col in cols_to_agg:
-    df[col] = 0.0
-
   winsizes = [10,35,75]
   for winsize in winsizes:
     for raw_col in cols_to_agg:
       col_agg = 'Bpen_'+raw_col
       new_colname = 'Bpen_rollsum_'+raw_col+'_'+str(winsize)        
-      df[new_colname] = roll_column(df, col_agg, winsize)
+      df_team[new_colname] = roll_column(df_team, col_agg, winsize)
 
     hit_col = 'Bpen_rollsum_H_'+str(winsize)
     bb_col = 'Bpen_rollsum_BB_'+str(winsize)
@@ -250,25 +315,52 @@ def get_bullpen_data_per_team(df):
     h_bb_mod2_col = 'Bpen_Bpen_H_BB_mod2_'+str(winsize)
     tb_bb_mod_col = 'Bpen_TB_BB_mod_'+str(winsize)
     tb_bb_perc_col = 'Bpen_TB_BB_perc_'+str(winsize)
-    df[h_bb_col] = df[hit_col]+df[bb_col]
-    df[xb_col] = df[double_col]+2*df[triple_col]+3*df[hr_col]
-    df[tb_col] = df[hit_col]+df[xb_col]
-    df[ip_mod_col] = np.maximum(df[ip_col], winsize*ip_per_game_def)
-    df[bf_mod_col] = np.maximum(df[bf_col], winsize*bf_per_game_def)
-    df[h_bb_mod_col] = df[h_bb_col] + h_bb_per_ip_def*(df[ip_mod_col]-df[ip_col])
-    df[h_bb_mod2_col] = df[h_bb_col] + h_bb_per_bf_def*(df[bf_mod_col]-df[bf_col])
-    df[so_mod_col] = df[so_col] + so_per_bf_def*(df[bf_mod_col]-df[bf_col])
-    df[tb_bb_mod_col] = (df[tb_col] + df[bb_col])+ tb_bb_perc_def*(df[bf_mod_col]-df[bf_col])
-    df[whip_col] = df[h_bb_mod_col]/df[ip_mod_col]
-    df[so_perc_col] = df[so_mod_col]/df[bf_mod_col]
-    df[tb_bb_perc_col] = df[tb_bb_mod_col]/df[bf_mod_col]
-    df[h_bb_perc_col] = df[h_bb_mod2_col]/df[bf_mod_col]
-       
-  return df
+    df_team[h_bb_col] = df_team[hit_col]+df_team[bb_col]
+    df_team[xb_col] = df_team[double_col]+2*df_team[triple_col]+3*df_team[hr_col]
+    df_team[tb_col] = df_team[hit_col]+df_team[xb_col]
+    df_team[ip_mod_col] = np.maximum(df_team[ip_col], winsize*ip_per_game_def)
+    df_team[bf_mod_col] = np.maximum(df_team[bf_col], winsize*bf_per_game_def)
+    df_team[h_bb_mod_col] = df_team[h_bb_col] + h_bb_per_ip_def*(df_team[ip_mod_col]-df_team[ip_col])
+    df_team[h_bb_mod2_col] = df_team[h_bb_col] + h_bb_per_bf_def*(df_team[bf_mod_col]-df_team[bf_col])
+    df_team[so_mod_col] = df_team[so_col] + so_per_bf_def*(df_team[bf_mod_col]-df_team[bf_col])
+    df_team[tb_bb_mod_col] = (df_team[tb_col] + df_team[bb_col])+ tb_bb_perc_def*(df_team[bf_mod_col]-df_team[bf_col])
+    df_team[whip_col] = df_team[h_bb_mod_col]/df_team[ip_mod_col]
+    df_team[so_perc_col] = df_team[so_mod_col]/df_team[bf_mod_col]
+    df_team[tb_bb_perc_col] = df_team[tb_bb_mod_col]/df_team[bf_mod_col]
+    df_team[h_bb_perc_col] = df_team[h_bb_mod2_col]/df_team[bf_mod_col]
+
+  df_team.set_index('date_dblhead', inplace=True)
+  return df_team
   
 def get_bullpen_data(df):
-  bp_df = get_bullpen_data_per_team(df)
-
+  ## Calculate some game level stats, specifically about
+  ## relative stats for starting pitcher vs bullpen
+  df['Bpen_IP_h'] = 9.0-df['Strt_IP_real_h']
+  df['Bpen_IP_v'] = 9.0-df['Strt_IP_real_v']
+  df['Bpen_BFP_h'] = df['AB_v']+df['BB_v']+df['HBP_v']-df['Strt_BFP_h']
+  df['Bpen_BFP_v'] = df['AB_h']+df['BB_h']+df['HBP_h']-df['Strt_BFP_v']
+  df['Bpen_R_h'] = df['R_v']-df['Strt_R_h']
+  df['Bpen_R_v'] = df['R_h']-df['Strt_R_v']
+  df['Bpen_H_h'] = df['H_v']-df['Strt_H_h']
+  df['Bpen_H_v'] = df['H_h']-df['Strt_H_v']
+  df['Bpen_HR_h'] = df['HR_v']-df['Strt_HR_h']
+  df['Bpen_HR_v'] = df['HR_h']-df['Strt_HR_v']
+  df['Bpen_x2B_h'] = df['x2B_v']-df['Strt_x2B_h']
+  df['Bpen_x2B_v'] = df['x2B_h']-df['Strt_x2B_v']
+  df['Bpen_x3B_h'] = df['x3B_v']-df['Strt_x3B_h']
+  df['Bpen_x3B_v'] = df['x3B_h']-df['Strt_x3B_v']
+  df['Bpen_BB_h'] = df['BB_v']-df['Strt_BB_h']
+  df['Bpen_BB_v'] = df['BB_h']-df['Strt_BB_v']
+  df['Bpen_HBP_h'] = df['HBP_v']-df['Strt_HBP_h']
+  df['Bpen_HBP_v'] = df['HBP_h']-df['Strt_HBP_v']
+  df['Bpen_SO_h'] = df['SO_v']-df['Strt_SO_h']
+  df['Bpen_SO_v'] = df['SO_h']-df['Strt_SO_v']
+  
+  teams = df[['team_h', 'team_v']].stack().unique().tolist()
+  bullpen_team_data_dict = {}
+  for team in teams:
+    bullpen_team_data_dict[team] = get_bullpen_team_df(team, df)
+    
   raw_cols_to_add = ['Bpen_IP', 'Bpen_BFP', 'Bpen_R', 'Bpen_H', 'Bpen_HR', 'Bpen_x2B',
     'Bpen_x3B', 'Bpen_BB', 'Bpen_HBP', 'Bpen_SO',  'Bpen_rollsum_IP_10', 'Bpen_rollsum_H_10',
     'Bpen_rollsum_BFP_10', 'Bpen_rollsum_HR_10', 'Bpen_rollsum_R_10',
@@ -298,13 +390,23 @@ def get_bullpen_data(df):
   cols_to_add = [col+suff for col in raw_cols_to_add for suff in ['_h','_v']]
   col_add_dict = {col:np.zeros(df.shape[0]) for col in cols_to_add}
   
+  for i in range(df.shape[0]):
+    row = df.iloc[i,:]
+    home_team = row['team_h']
+    visit_team = row['team_v']
+    date_dblhead = row['date_dblhead']
+    curr_df = bullpen_team_data_dict[home_team]
+    if date_dblhead in curr_df.index:
+      for col in raw_cols_to_add:
+        value = curr_df.loc[date_dblhead,col]
+        col_add_dict[col+'_h'][i] = value
+    curr_df = bullpen_team_data_dict[visit_team]
+    if date_dblhead in curr_df.index:
+      for col in raw_cols_to_add:
+        value = curr_df.loc[date_dblhead,col]
+        col_add_dict[col+'_v'][i] = value
+  
   for col in cols_to_add:
-    bp_df[col] = col_add_dict[col]
+    df[col] = col_add_dict[col]
 
-  #bp_df.reset_index(drop=True, inplace=True)
-  #bp_df['date'] = pd.to_datetime(bp_df['date'], format='%m-%d-%Y').dt.strftime('%Y%m%d').astype(int)
-  #bp_df['dblhead_num'] = bp_df['dblhead_num'].apply(lambda x: int(x) if str(x).strip().isdigit() else 0)
-  #bp_df['date_dblhead'] = bp_df['dblhead_num'].astype(int)
-  #bp_df.set_index('date_dblhead', inplace=True)
-  #print(bp_df.sample(5))
-  return bp_df
+  return df

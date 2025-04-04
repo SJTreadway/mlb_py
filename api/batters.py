@@ -7,7 +7,7 @@ from helpers import roll_column
 from bs4 import BeautifulSoup
 
 URL_PREFIX = 'https://www.retrosheet.org/boxesetc/'
-WINDOWS = [30,75,162]
+WINDOWS = [30,75,162,350]
 
 # Get all the data for a particular batter
 def get_full_batting_data(batter_id):
@@ -17,7 +17,6 @@ def get_full_batting_data(batter_id):
   df_batting = pd.DataFrame()
   for url in link_list:
     df_batting = pd.concat((df_batting, get_season_batting_data(url)))
-  df_batting = get_rolling_batting_feats(df_batting)
   return df_batting
 
 def get_daily_season_links(batter_id):
@@ -86,126 +85,125 @@ def get_season_batting_data(url):
     return(None)
   batter_df['date'] = date_list
   batter_df['dblhead_num'] = dblhead_num_list
-  batter_df['date'] = pd.to_datetime(batter_df['date'], format='%m-%d-%Y').dt.strftime('%Y%m%d').astype(int)
-  batter_df['dblheader_int'] = batter_df['dblhead_num'].apply(lambda x: int(x) if str(x).strip().isdigit() else 0)
   
-  return batter_df
-  
-def get_rolling_batting_feats(batter_df):
-  if batter_df is None or batter_df.empty:
-    return None
-
   cols = ['AB','BB','H','x2B','x3B','HR','HBP','SO','SB','CS']
-  for col in cols:
-    batter_df[col] = pd.to_numeric(batter_df[col], errors='coerce').fillna(0).astype(int)  # Convert to int after replacing NaNs
-
+    
   pos = batter_df.Pos.mode()[0]
   # corner cases where the most common position was a pair
   if ',' in pos:
     pos = pos.split(',')[0]
   
-  try:
-    default_dict = get_position_defaults()
-    for winsize in WINDOWS:
-      suff = str(winsize)
-      for raw_col in cols:
-        new_col = 'rollsum_'+raw_col+'_'+suff
-        batter_df[new_col] = roll_column(batter_df, raw_col, winsize)
-      ab_per_game_def = 2
-      pa_per_game_def = 2
-      batavg_def = default_dict[pos]['batavg']
-      obp_def = default_dict[pos]['obp']
-      slg_def = default_dict[pos]['slg']
-      slgmod_def = default_dict[pos]['slgmod']
-      so_bat_perc_def = default_dict[pos]['sobat']
+  batter_df['date'] = pd.to_datetime(batter_df['date'], format='%m-%d-%Y').dt.strftime('%Y%m%d').astype(int)
+  t_col = batter_df['dblhead_num'].copy()
+  t_col = pd.to_numeric(t_col, errors='coerce').fillna(0)
+  batter_df['dblheader_int'] = t_col.astype(int)
+  
+  default_dict = get_position_defaults()
 
-      # Columns created by aggregation above
-      ab_col = 'rollsum_AB_'+str(winsize)
-      h_col = 'rollsum_H_'+str(winsize)
-      bb_col = 'rollsum_BB_'+str(winsize)
-      hbp_col = 'rollsum_HBP_'+str(winsize)
-      doub_col = 'rollsum_x2B_'+str(winsize)
-      trip_col = 'rollsum_x3B_'+str(winsize)
-      hr_col = 'rollsum_HR_'+str(winsize)
-      so_col = 'rollsum_SO_'+str(winsize)
+  for winsize in WINDOWS:
+    suff = str(winsize)
+    for raw_col in cols:
+      new_col = 'rollsum_'+raw_col+'_'+suff
+      batter_df[new_col] = roll_column(batter_df, raw_col, winsize)
+    ab_per_game_def = 2
+    pa_per_game_def = 2
+    batavg_def = default_dict[pos]['batavg']
+    obp_def = default_dict[pos]['obp']
+    slg_def = default_dict[pos]['slg']
+    slgmod_def = default_dict[pos]['slgmod']
+    so_bat_perc_def = default_dict[pos]['sobat']
 
-      # Columns I will define below
-      abmod_col = 'ABmod_'+str(winsize)
-      fakeab_col = 'fakeAB_'+str(winsize)
-      pa_col = 'PA_'+str(winsize)
-      pamod_col = 'PAmod_'+str(winsize)
-      fakepa_col = 'fakePA_'+str(winsize)
-      xb_col = 'XB_'+str(winsize) # represents extra bases beyond hits
-      slg_col = 'SLG_'+str(winsize)
-      slgmod_col = 'SLGmod_'+str(winsize)
-      batavg_col = 'BATAVG_'+str(winsize)
-      so_bat_perc_col = 'SObat_perc_'+str(winsize)
-      obp_col = 'OBP_'+str(winsize)
-      obs_col = 'OBS_'+str(winsize)
+    # Columns created by aggregation above
+    ab_col = 'rollsum_AB_'+str(winsize)
+    h_col = 'rollsum_H_'+str(winsize)
+    bb_col = 'rollsum_BB_'+str(winsize)
+    hbp_col = 'rollsum_HBP_'+str(winsize)
+    doub_col = 'rollsum_x2B_'+str(winsize)
+    trip_col = 'rollsum_x3B_'+str(winsize)
+    hr_col = 'rollsum_HR_'+str(winsize)
+    so_col = 'rollsum_SO_'+str(winsize)
 
-      # calculate BATAVG, with smoothing for low AB numbers
-      batter_df[abmod_col] = np.maximum(batter_df[ab_col],winsize*ab_per_game_def)
-      batter_df[fakeab_col] = np.minimum(batter_df[abmod_col]-batter_df[ab_col],0)
-      batter_df[batavg_col] = (batter_df[h_col] + (batter_df[fakeab_col]*batavg_def))/(batter_df[abmod_col])
+    # Columns I will define below
+    abmod_col = 'ABmod_'+str(winsize)
+    fakeab_col = 'fakeAB_'+str(winsize)
+    pa_col = 'PA_'+str(winsize)
+    pamod_col = 'PAmod_'+str(winsize)
+    fakepa_col = 'fakePA_'+str(winsize)
+    xb_col = 'XB_'+str(winsize) # represents extra bases beyond hits
+    slg_col = 'SLG_'+str(winsize)
+    slgmod_col = 'SLGmod_'+str(winsize)
+    batavg_col = 'BATAVG_'+str(winsize)
+    so_bat_perc_col = 'SObat_perc_'+str(winsize)
+    obp_col = 'OBP_'+str(winsize)
+    obs_col = 'OBS_'+str(winsize)
 
-      # calculate SLG, with smoothing for low AB numbers
-      batter_df[xb_col] = batter_df[doub_col] + 2*batter_df[trip_col] + 3*batter_df[hr_col]
-      batter_df[slg_col] = (batter_df[h_col] + batter_df[xb_col] +
-                                (batter_df[fakeab_col]*slg_def))/(batter_df[abmod_col])
+    # calculate BATAVG, with smoothing for low AB numbers
+    batter_df[abmod_col] = np.maximum(batter_df[ab_col],winsize*ab_per_game_def)
+    batter_df[fakeab_col] = np.minimum(batter_df[abmod_col]-batter_df[ab_col],0)
+    batter_df[batavg_col] = (batter_df[h_col] + (batter_df[fakeab_col]*batavg_def))/(batter_df[abmod_col])
 
-      # calculate OBP, with smoothing for low PA numbers
-      batter_df[pa_col] = batter_df[ab_col]+batter_df[bb_col]+batter_df[hbp_col]
-      batter_df[pamod_col] = np.maximum(batter_df[pa_col],winsize*pa_per_game_def)
-      batter_df[fakepa_col] = np.minimum(batter_df[pamod_col]-batter_df[pa_col],0)
-      batter_df[obp_col] = (batter_df[h_col] + batter_df[bb_col] + batter_df[hbp_col]
-                            + (batter_df[fakepa_col]*obp_def))/(
-                              batter_df[pamod_col])
+    # calculate SLG, with smoothing for low AB numbers
+    batter_df[xb_col] = batter_df[doub_col] + 2*batter_df[trip_col] + 3*batter_df[hr_col]
+    batter_df[slg_col] = (batter_df[h_col] + batter_df[xb_col] +
+                              (batter_df[fakeab_col]*slg_def))/(batter_df[abmod_col])
 
-      # calculate SLGmod, with smoothing for low PA numbers
-      batter_df[slgmod_col] = (batter_df[so_col] + batter_df[bb_col] + batter_df[hbp_col]
-                                +batter_df[xb_col] + (batter_df[fakepa_col]*slgmod_def))/(
-                              batter_df[pamod_col])
+    # calculate OBP, with smoothing for low PA numbers
+    batter_df[pa_col] = batter_df[ab_col]+batter_df[bb_col]+batter_df[hbp_col]
+    batter_df[pamod_col] = np.maximum(batter_df[pa_col],winsize*pa_per_game_def)
+    batter_df[fakepa_col] = np.minimum(batter_df[pamod_col]-batter_df[pa_col],0)
+    batter_df[obp_col] = (batter_df[h_col] + batter_df[bb_col] + batter_df[hbp_col]
+                          + (batter_df[fakepa_col]*obp_def))/(
+                            batter_df[pamod_col])
 
-      # calculate SObat_perc, with smoothing for low PA numbers
-      batter_df[so_bat_perc_col] = (batter_df[so_col] + (batter_df[fakepa_col]*so_bat_perc_def))/(
-                              batter_df[pamod_col])
+    # calculate SLGmod, with smoothing for low PA numbers
+    batter_df[slgmod_col] = (batter_df[so_col] + batter_df[bb_col] + batter_df[hbp_col]
+                              +batter_df[xb_col] + (batter_df[fakepa_col]*slgmod_def))/(
+                            batter_df[pamod_col])
 
-      # calculate OBS
-      batter_df[obs_col] = batter_df[obp_col]+batter_df[slg_col]
-      
-      batter_df['date_dblhead'] = (batter_df['date'].astype(str) + batter_df['dblheader_int'].astype(str)).astype(int)
-      batter_df.set_index('date_dblhead', inplace=True)
+    # calculate SObat_perc, with smoothing for low PA numbers
+    batter_df[so_bat_perc_col] = (batter_df[so_col] + (batter_df[fakepa_col]*so_bat_perc_def))/(
+                            batter_df[pamod_col])
 
-    colstems = ['BATAVG', 'OBP', 'SLG', 'OBS', 'SLGmod','SObat_perc']
-    newcols89 = [stem+'_'+str(winsize)+'_b'+str(i)+hv   for stem in colstems for winsize in WINDOWS
-                  for hv in ['_h','_v'] for i in range(1,10)]
-    for col in newcols89:
-      stem = col.split('_')[0].lower()
-      if stem in default_dict.get('p', {}):  # Ensure key exists
-        batter_df[col] = default_dict['p'][stem]  
-      else:
-        batter_df[col] = np.nan  # Assign NaN if stem not found
+    # calculate OBS
+    batter_df[obs_col] = batter_df[obp_col]+batter_df[slg_col]
 
-    w9 = np.array([0.12541131, 0.12159052, 0.11787189, 0.11434144, 0.11096691,
-        0.10772781, 0.10430724, 0.10078822, 0.09699465])
-    w8 = w9[:-1]/np.sum(w9[:-1])
-    for col in colstems:
-      for winsize in WINDOWS:
-        for hv in ['_h','_v']:
-          b_cols9 = [col+'_'+str(winsize)+'_b'+str(i)+hv for i in range(1,10)]
-          b_cols8 = [col+'_'+str(winsize)+'_b'+str(i)+hv for i in range(1,9)]
-          fcolname9 = 'lineup9_'+col+'_'+str(winsize)+hv
-          fcolname8 = 'lineup8_'+col+'_'+str(winsize)+hv
-          fcolname9w = 'lineup9_'+col+'_'+str(winsize)+'_w'+hv
-          fcolname8w = 'lineup8_'+col+'_'+str(winsize)+'_w'+hv
-          batter_df[fcolname9] = np.mean(batter_df.loc[:,b_cols9].to_numpy(),axis=1)
-          batter_df[fcolname8] = np.mean(batter_df.loc[:,b_cols8].to_numpy(),axis=1)
-          batter_df[fcolname9w] = batter_df.loc[:,b_cols9].to_numpy().dot(w9)
-          batter_df[fcolname8w] = batter_df.loc[:,b_cols8].to_numpy().dot(w8)
-    batter_df.drop(['at_vs', 'Opponent', 'League', 'Pos'], axis=1, inplace=True)
-  except:
-    print('error occurred; skipping row')
+    batter_df['date_dblhead'] = (batter_df['date'].astype(str) + batter_df['dblheader_int'].astype(str)).astype(int)
+    batter_df.set_index('date_dblhead', inplace=True)
   return batter_df
+
+def get_lineup_averages(df):
+  default_dict = get_position_defaults()
+  colstems = ['BATAVG', 'OBP', 'SLG', 'OBS', 'SLGmod','SObat_perc']
+  newcols89 = [stem+'_'+str(winsize)+'_b'+str(i)+hv for stem in colstems for winsize in WINDOWS
+                for hv in ['_h','_v'] for i in range(1,10)]
+  for col in newcols89:
+    stem = col.split('_')[0].lower()
+    if stem in default_dict.get('p', {}):  # Ensure key exists
+      df[col] = default_dict['p'][stem]  
+    else:
+      df[col] = np.nan  # Assign NaN if stem not found
+
+  w9 = np.array([0.12541131, 0.12159052, 0.11787189, 0.11434144, 0.11096691,
+      0.10772781, 0.10430724, 0.10078822, 0.09699465])
+  w8 = w9[:-1]/np.sum(w9[:-1])
+  for col in colstems:
+    for winsize in WINDOWS:
+      for hv in ['_h','_v']:
+        b_cols9 = [col+'_'+str(winsize)+'_b'+str(i)+hv for i in range(1,10)]
+        b_cols8 = [col+'_'+str(winsize)+'_b'+str(i)+hv for i in range(1,9)]
+        fcolname9 = 'lineup9_'+col+'_'+str(winsize)+hv
+        fcolname8 = 'lineup8_'+col+'_'+str(winsize)+hv
+        fcolname9w = 'lineup9_'+col+'_'+str(winsize)+'_w'+hv
+        fcolname8w = 'lineup8_'+col+'_'+str(winsize)+'_w'+hv
+        df[fcolname9] = np.mean(df.loc[:,b_cols9].to_numpy(),axis=1)
+        df[fcolname8] = np.mean(df.loc[:,b_cols8].to_numpy(),axis=1)
+        df[fcolname9w] = df.loc[:,b_cols9].to_numpy().dot(w9)
+        df[fcolname8w] = df.loc[:,b_cols8].to_numpy().dot(w8)
+
+  df['date_dblhead'] = (df['date'].astype(str) + df['dblheader_int'].astype(str)).astype(int)
+  df.set_index('date_dblhead', inplace=True)
+
+  return df
 
 def get_position_defaults():
   ## Set up position level defaults
