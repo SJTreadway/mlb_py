@@ -111,7 +111,7 @@ def predict_runs_scored(X):
 
 def get_runs_scored_prob(probs, line):
   line = pd.to_numeric(line, errors='coerce')
-  return probs[math.ceil(line):].sum() if not pd.isna(line) else -1
+  return probs[math.ceil(line):].sum() if not pd.isna(line) else None
 
 def post_to_X():
   client = tweepy.Client(
@@ -178,6 +178,7 @@ def lambda_handler(event, context):
   print(f'\nGetting Features for Run Total Predictions')
   df_runs = get_run_total_feats(lineup_w_pitching_batting_team_df)
   df_runs.drop_duplicates(subset=['date_dblhead', 'team_h', 'team_v'], inplace=True)
+  df_runs.reset_index(drop=True, inplace=True)
   
   print(f'\nGetting Odds Data')
   lineup_w_pitching_batting_team_df['odds'] = lineup_w_pitching_batting_team_df.apply(lambda row: get_money_line(row['team_h_full']), axis=1)
@@ -191,7 +192,6 @@ def lambda_handler(event, context):
   lineup_w_pitching_batting_team_df['home_victory'], lineup_w_pitching_batting_team_df['prob'] = predict_winner(lineup_w_pitching_batting_df.loc[:, HOME_VICTORY_FEAT_SET])
 
   df_runs['run_total'], run_total_probs = predict_runs_scored(df_runs.loc[:, RUNS_SCORED_FEAT_SET])
-  df_runs = df_runs.reset_index(drop=True)
   df_runs['prob'] = df_runs.apply(lambda row: get_runs_scored_prob(run_total_probs[row.name], row['over_under_line']), axis=1)
 
   print_todays_slate(lineup_w_pitching_batting_team_df)
