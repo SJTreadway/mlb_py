@@ -233,18 +233,17 @@ def get_rolling_pitching_feats(df, start_pitchers_all):
     row = df.iloc[i,:]
     sp_id_v = row['starting_pitcher_id_v']
     sp_id_h = row['starting_pitcher_id_h']
-    date_dblhead = row['date_dblhead']
     if sp_id_v in pitcher_data_dict.keys():
       curr_df = pitcher_data_dict[sp_id_v]
-      if date_dblhead in curr_df.index:
+      if not curr_df.empty:
         for col in raw_cols_to_add:
-          value = curr_df.loc[date_dblhead,col]
+          value = curr_df[col].iloc[-1]
           col_add_dict['Strt_'+col+'_v'][i] = value
     if sp_id_h in pitcher_data_dict.keys():
       curr_df = pitcher_data_dict[sp_id_h]
-      if date_dblhead in curr_df.index:
+      if not curr_df.empty:
         for col in raw_cols_to_add:
-          value = curr_df.loc[date_dblhead,col]
+          value = curr_df[col].iloc[-1]
           col_add_dict['Strt_'+col+'_h'][i] = value
   
   for col in cols_to_add:

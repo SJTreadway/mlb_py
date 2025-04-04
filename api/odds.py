@@ -14,30 +14,38 @@ CACHED_ODDS_RESULTS = None
 
 def line_to_prob(line):
   if line is None:
-    return -1
-  prob_underdog = 100/(np.abs(line)+100) # this is the probability for the underdog
-  add_term = ((1-np.sign(line))/2) # 0 if negative, 1 if positive
-  mult_factor = np.sign(line) # -1 if negative, 1 if positive
-  # if line is positive, team is underdog, give 0 + 1*prob_underdog
-  # if line is negative, team is favorites, give 1 + (-1)*prob_underdog
-  imp_prob = add_term + mult_factor * prob_underdog 
+      return -1
+  if line < 0:
+    # For negative lines, calculate the implied probability
+    imp_prob = abs(line) / (abs(line) + 100)
+  else:
+    # For positive lines, calculate the implied probability
+    imp_prob = 100 / (line + 100)
   return imp_prob
 
-# TODO: fix math
-def line_to_bet(line):
-  prob = line_to_prob(line)
-  if prob is None or prob <= 0 or prob >= 1:
+def line_to_bet(line, advantage=0.04):
+  if line is None:
     return -1
-  
-  prob = prob - 0.04
-  if prob < 0.5:
-    # Underdog case (positive line)
-    line = 100 * (prob / (1 - prob)) - prob
+  # Convert line to implied probability
+  implied_prob = line_to_prob(line)
+
+  # Adjust the probability by the desired advantage
+  # Ensure the target probability is within a valid range
+  if line < 0:
+    target_prob = implied_prob + advantage
   else:
-    # Favorite case (negative line)
-    line = -100 * ((1 - prob) / prob) - prob
+    target_prob = implied_prob - advantage
   
-  return round(line)
+  # Ensure target probability stays within valid range [0, 1]
+  target_prob = max(0.01, min(0.99, target_prob))  # Avoid invalid probabilities (exact 0 or 1)
+  
+  # Convert adjusted probability back to line
+  if line < 0:  # Favorite case (negative line)
+    new_line = -100 * (1 - target_prob) / target_prob
+  else:  # Underdog case (positive line)
+    new_line = 100 * target_prob / (1 - target_prob)
+
+  return new_line
 
 def extract_total_odds(data):
   extracted_data = {}
