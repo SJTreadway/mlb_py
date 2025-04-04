@@ -16,6 +16,7 @@ from api.teams import generate_team_window_features
 from api.lineups import get_lineups, get_run_total_feats
 from api.odds import get_total_odds, get_total_line, get_total_ev, get_money_line, get_money_line_price
 from api.pitchers import process_pitching_data
+from api.batters import process_batting_data
 
 
 import tweepy
@@ -171,10 +172,11 @@ def lambda_handler(event, context):
   print('\nLoading Pitching Data')
   lineup_w_pitching_df = process_pitching_data(df)
   
-  print(lineup_w_pitching_df.head(5))
-  
   # Add Batting Data
-  #final_df = get_rolling_batting_feats(final_df)
+  print('\nLoading Batting Data')
+  lineup_w_pitching_batting_df = process_batting_data(lineup_w_pitching_df)
+  
+  print(lineup_w_pitching_batting_df.head(5))
   
   print(f'\nSaving Lineup Data to CSV')
   #df.to_csv(fname, index=False)

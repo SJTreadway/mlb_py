@@ -18,7 +18,7 @@ def process_pitching_data(df):
   start_pitchers_all = np.union1d(start_pitchers_h, start_pitchers_v)
 
   # step 1: get pitching data for all starting pitchers and store to csv
-  get_pitching_data(start_pitchers_all)
+  load_pitching_data(start_pitchers_all)
   
   # step 2: load data from files and store into dataframe
   strt_pitch_df = get_rolling_pitching_feats(df, start_pitchers_all)
@@ -26,11 +26,10 @@ def process_pitching_data(df):
   return get_bullpen_data(strt_pitch_df)
 
 # Get data for each starting pitcher and store to csv
-def get_pitching_data(start_pitchers_all):
+def load_pitching_data(start_pitchers_all):
   for p_id in start_pitchers_all:
     if p_id:
       df_temp = get_full_pitching_data(p_id)
-      # may want to modify below to save to a dedicated folder
       fname_out = 'data/pitch/pitching_data_'+p_id+'.csv'
       if not os.path.exists(fname_out):
         df_temp.to_csv(fname_out, index=False)
@@ -49,7 +48,6 @@ def get_full_pitching_data(pitcher_id):
 def get_daily_season_links(pitcher_id):
   letter = pitcher_id.upper()[0]
   url = URL_PREFIX+letter+'/P'+pitcher_id+'.htm'
-  #time.sleep(.1)
   page = requests.get(url)
   soup = BeautifulSoup(page.content, 'html.parser')
   html=list(soup.children)
@@ -63,7 +61,6 @@ def get_daily_season_links(pitcher_id):
 ## Given the url that refers to a specific pitcher and season
 ## we scrape the data and process it a bit
 def get_season_pitching_data(url):    
-  #time.sleep(.1)
   page = requests.get(url)
   soup = BeautifulSoup(page.content, 'html.parser')
   html=list(soup.children)[-1]
