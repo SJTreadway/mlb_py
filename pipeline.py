@@ -9,6 +9,10 @@ warnings.simplefilter("ignore", category=FutureWarning)
 
 import pandas as pd
 warnings.filterwarnings("ignore", category=pd.errors.PerformanceWarning)
+# Set options to display all columns and adjust the width
+pd.set_option('display.max_columns', None)  # Display all columns
+pd.set_option('display.width', 0)  # Automatically adjust to terminal width
+
 from datetime import date, timedelta
 import pickle
 
