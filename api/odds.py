@@ -17,7 +17,7 @@ def line_to_prob(line):
       return -1
   if line < 0:
     # For negative lines, calculate the implied probability
-    imp_prob = line / (line + 100)
+    imp_prob = abs(line) / (abs(line) + 100)
   else:
     # For positive lines, calculate the implied probability
     imp_prob = 100 / (line + 100)
@@ -36,25 +36,31 @@ def prob_to_line(prob):
 
   return None if pd.isna(line) else line
 
-def line_to_bet(implied_prob, advantage=0.04):
-  if implied_prob is None:
-    return -1
+def line_to_bet(model_prob, advantage=0.04):
+  if model_prob is None or not (0 < model_prob < 1):
+    return None
 
-  # Adjust the probability by the desired advantage
-  # Ensure the target probability is within a valid range
-  if implied_prob > 0.5:
-    target_prob = implied_prob - advantage
+  # The implied line you'd be willing to bet at:
+  target_implied_prob = model_prob - advantage
+
+  if target_implied_prob <= 0 or target_implied_prob >= 1:
+    return None  # Avoid divide-by-zero or nonsensical odds
+
+  # Convert target implied probability to American odds
+  if target_implied_prob > 0.5:
+    line = -100 * (target_implied_prob / (1 - target_implied_prob))
   else:
-    target_prob = implied_prob + advantage
-  
-  # Convert adjusted probability back to line
-  if implied_prob > 0.5:  # Favorite case (negative line)
-    new_line = -100 * (1 - target_prob) / target_prob
-  else:  # Underdog case (positive line)
-    new_line = 100 * target_prob / (1 - target_prob)
+    line = 100 * ((1 - target_implied_prob) / target_implied_prob)
 
-  rounded_line = None if pd.isna(new_line) else math.floor(new_line)
-  return None if rounded_line is None else 100 if -99 <= rounded_line <= 99 else rounded_line
+  return math.floor(line)
+
+def calculate_edge(model_prob, market_line):
+  if model_prob is None or market_line is None:
+    return None
+
+  implied_prob = line_to_prob(market_line)
+  edge = (model_prob - implied_prob) * 100
+  return f'{round(edge,2)}%'
 
 def extract_total_odds(data):
   extracted_data = {}
