@@ -18,7 +18,7 @@ import pickle
 
 from api.teams import generate_team_window_features
 from api.lineups import get_lineups, get_run_total_feats
-from api.odds import get_total_odds, get_total_line, get_money_line_price, line_to_bet
+from api.odds import get_over_odds, get_under_odds, get_total_line, get_money_line_price, line_to_bet
 from api.pitchers import process_pitching_data
 from api.batters import process_batting_data
 
@@ -108,13 +108,12 @@ def predict_winner(X):
 def predict_runs_scored(X):
   with open('models/runs_scored_model.pkl', 'rb') as pickle_file:
     model = pickle.load(pickle_file)
-  pred = model.predict(X)
   probs = model.predict_proba(X)
-  return pred, probs
+  return probs
 
 def get_runs_scored_prob(probs, line):
   line = pd.to_numeric(line, errors='coerce')
-  return probs[math.ceil(line):].sum() if not pd.isna(line) else None
+  return round(probs[math.ceil(line):].sum()) if not pd.isna(line) else None
 
 def post_to_X():
   client = tweepy.Client(
@@ -130,7 +129,7 @@ def post_to_X():
   post_result = client.create_tweet(text=tweet)
   return 'Tweet Posted to @MoneyballVo!'
 
-def print_todays_slate(df):
+def print_todays_home_victory_preds(df):
   df = df.rename(columns={
     'date_dblhead': 'Date',
     'game_time': 'Time',
@@ -147,6 +146,24 @@ def print_todays_slate(df):
     'Date', 'Time', 'Visitor', 'Probable Starter (V)', 
     'Home', 'Probable Starter (H)', 'ML (H)', 'Line to Bet (H)',
     'Prob Win (H)'
+  ]
+  print(f"\n{df.loc[:,cols]}")
+  
+def print_todays_totals_preds(df):
+  df = df.rename(columns={
+    'date_dblhead': 'Date',
+    'game_time': 'Time',
+    'team_h_full': 'Home',
+    'team_v_full': 'Visitor',
+    'over_under_line': 'O/U Line',
+    'over_under_price_o': 'Over Price',
+    'over_under_price_u': 'Under Price',
+    'total_runs_predicted': 'Total Runs Predicted'
+  })
+  df.sort_values('Time', ascending=True, inplace=True)
+  cols = [
+    'Date', 'Time', 'Visitor', 'Home', 'O/U Line',
+    'Over Price', 'Under Price', 'Total Runs Predicted'
   ]
   print(f"\n{df.loc[:,cols]}")
 
@@ -185,25 +202,27 @@ def lambda_handler(event, context):
   print(f'\nGetting Odds Data')
   lineup_w_pitching_batting_team_df['moneyline'] = lineup_w_pitching_batting_team_df.apply(lambda row: get_money_line_price(row['team_h_full']), axis=1)
 
-  df_runs['odds'] = lineup_w_pitching_batting_team_df.apply(lambda row: get_total_odds(row['team_h_full']), axis=1)
-  df_runs['over_under_line'] = lineup_w_pitching_batting_team_df.apply(lambda row: get_total_line(row['team_h_full']), axis=1)
+  df_runs['over_under_price_o'] = df_runs.apply(lambda row: get_over_odds(row['team_h_full']), axis=1)
+  df_runs['over_under_price_u'] = df_runs.apply(lambda row: get_under_odds(row['team_h_full']), axis=1)
+  df_runs['over_under_line'] = df_runs.apply(lambda row: get_total_line(row['team_h_full']), axis=1)
 
   print(f'\nMaking Predictions')
   lineup_w_pitching_batting_team_df['home_victory'], lineup_w_pitching_batting_team_df['prob'] = predict_winner(lineup_w_pitching_batting_df.loc[:, HOME_VICTORY_FEAT_SET])
   lineup_w_pitching_batting_team_df['moneyline_value_line'] = lineup_w_pitching_batting_team_df.apply(lambda row: line_to_bet(row['prob']), axis=1)
 
-  df_runs['run_total'], run_total_probs = predict_runs_scored(df_runs.loc[:, RUNS_SCORED_FEAT_SET])
-  df_runs['prob'] = df_runs.apply(lambda row: get_runs_scored_prob(run_total_probs[row.name], row['over_under_line']), axis=1)
-  df_runs['over_under_value_line'] = df_runs.apply(lambda row: line_to_bet(row['prob']), axis=1)
+  run_total_probs = predict_runs_scored(df_runs.loc[:, RUNS_SCORED_FEAT_SET])
+  df_runs['total_runs_predicted'] = df_runs.apply(lambda row: get_runs_scored_prob(run_total_probs, row['over_under_line']), axis=1)
 
-  print_todays_slate(lineup_w_pitching_batting_team_df)
+  print_todays_home_victory_preds(lineup_w_pitching_batting_team_df)
+  
+  print_todays_totals_preds(df_runs)
   
   #print(f'\nHOME VICTORY FEATS:\n{lineup_w_pitching_batting_team_df.loc[:, HOME_VICTORY_FEAT_SET]}')
   #print(f'\nRUNS SCORED FEATS:\n{df_runs.loc[:, RUNS_SCORED_FEAT_SET]}')
   
   print(f'\nSaving Predictions DataFrames to CSV')
   lineup_w_pitching_batting_team_df.loc[:, ['date_dblhead', 'game_time', 'team_h_full', 'team_v_full', 'prob', 'moneyline', 'moneyline_value_line']].to_csv(f'data/results/{RUN_DATE}_home_victory_preds.csv', index=False)
-  df_runs.loc[:, ['date_dblhead', 'game_time', 'team_h_full', 'team_v_full', 'over_under_line', 'odds', 'prob', 'run_total']].to_csv(f'data/results/{RUN_DATE}_run_total_preds.csv', index=False)
+  df_runs.loc[:, ['date_dblhead', 'game_time', 'team_h_full', 'team_v_full', 'over_under_line', 'total_runs_predicted']].to_csv(f'data/results/{RUN_DATE}_run_total_preds.csv', index=False)
   
   print(f'\nPosting picks to X')
   #post_to_X()

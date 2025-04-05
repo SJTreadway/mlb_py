@@ -66,7 +66,8 @@ def extract_total_odds(data):
     date = game['commence_time']
     
     over_under_line = None
-    over_under_price = None
+    over_under_price_o = None
+    over_under_price_u = None
     spread_line = None
     spread_price = None
     moneyline_price = None
@@ -79,7 +80,9 @@ def extract_total_odds(data):
             for outcome in market["outcomes"]:
               if outcome["name"] == "Over":
                 over_under_line = outcome["point"]
-                over_under_price = outcome["price"]
+                over_under_price_o = outcome["price"]
+              if outcome["name"] == "Under":
+                over_under_price_u = outcome["price"]
           if market["key"] == "spreads":
             for outcome in market["outcomes"]:
               if outcome["name"] == team_h:  # Get spread for home team
@@ -97,8 +100,9 @@ def extract_total_odds(data):
         "over_under_line": over_under_line,
         "spread_line": spread_line,
         "moneyline_price": moneyline_price,
-        "over_under_price": line_to_prob(over_under_price),
-        "spread_price": line_to_prob(spread_price)
+        "over_under_price_o": over_under_price_o,
+        "over_under_price_u": over_under_price_u,
+        "spread_price": spread_price
       }
   return extracted_data
 
@@ -118,9 +122,13 @@ def get_money_line_price(team):
   res = get_odds_results().get(get_stripped_team_val(team), 'Not Found')
   return res if res == 'Not Found' else res['moneyline_price']
 
-def get_total_odds(team):
+def get_over_odds(team):
   res = get_odds_results().get(team, 'Not Found')
-  return res if res == 'Not Found' else res['over_under_price']
+  return res if res == 'Not Found' else res['over_under_price_o']
+
+def get_under_odds(team):
+  res = get_odds_results().get(team, 'Not Found')
+  return res if res == 'Not Found' else res['over_under_price_u']
 
 def get_total_line(team):
   res = get_odds_results().get(team, 'Not Found')
