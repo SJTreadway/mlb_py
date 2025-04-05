@@ -13,8 +13,8 @@ URL_PREFIX = 'https://www.retrosheet.org/boxesetc/'
 WINDOWS = [10,35,75]
 
 def process_pitching_data(df):
-  start_pitchers_h = df.starting_pitcher_id_h.unique()
-  start_pitchers_v = df.starting_pitcher_id_v.unique()
+  start_pitchers_h = [p for p in df.starting_pitcher_id_h.unique() if p is not None]
+  start_pitchers_v = [p for p in df.starting_pitcher_id_v.unique() if p is not None]
   start_pitchers_all = np.union1d(start_pitchers_h, start_pitchers_v)
 
   # step 1: get pitching data for all starting pitchers and store to csv

@@ -2,7 +2,6 @@ import math
 import os
 import json
 import pandas as pd
-import numpy as np
 from bs4 import BeautifulSoup
 import requests
 
@@ -70,7 +69,8 @@ def extract_total_odds(data):
     over_under_price_u = None
     spread_line = None
     spread_price = None
-    moneyline_price = None
+    moneyline_price_h = None
+    moneyline_price_v = None
     
     # Find the totals market
     for bookmaker in game.get("bookmakers", []):
@@ -91,7 +91,9 @@ def extract_total_odds(data):
           if market["key"] == "h2h":
             for outcome in market["outcomes"]:
               if outcome["name"] == team_h:  # Get moneyline for home team
-                moneyline_price = outcome["price"]
+                moneyline_price_h = outcome["price"]
+              if outcome["name"] == team_v:  # Get moneyline for visiting team
+                moneyline_price_v = outcome["price"]
     home_team = get_stripped_team_val(team_h)
     if extracted_data.get(home_team) is None:
       extracted_data[home_team] = {
@@ -99,7 +101,19 @@ def extract_total_odds(data):
         "date": date,
         "over_under_line": over_under_line,
         "spread_line": spread_line,
-        "moneyline_price": moneyline_price,
+        "moneyline_price": moneyline_price_h,
+        "over_under_price_o": over_under_price_o,
+        "over_under_price_u": over_under_price_u,
+        "spread_price": spread_price
+      }
+    visiting_team = get_stripped_team_val(team_v)
+    if extracted_data.get(visiting_team) is None:
+      extracted_data[visiting_team] = {
+        "team_h": team_h,
+        "date": date,
+        "over_under_line": over_under_line,
+        "spread_line": spread_line,
+        "moneyline_price": moneyline_price_v,
         "over_under_price_o": over_under_price_o,
         "over_under_price_u": over_under_price_u,
         "spread_price": spread_price
