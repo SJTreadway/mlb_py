@@ -11,9 +11,6 @@ import statsapi
 
 from bs4 import BeautifulSoup
 
-from api.pitchers import get_full_pitching_data
-from api.batters import get_full_batting_data
-
 from helpers import agg_non_na
 
 from dotenv import load_dotenv

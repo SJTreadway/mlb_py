@@ -13,8 +13,8 @@ ODDS_API_KEY = os.environ['ODDS_API_KEY']
 CACHED_ODDS_RESULTS = None
 
 def line_to_prob(line):
-  if line is None:
-      return -1
+  if line is None or pd.isna(line):
+    return -1
   if line < 0:
     # For negative lines, calculate the implied probability
     imp_prob = abs(line) / (abs(line) + 100)
@@ -139,28 +139,28 @@ def get_odds_results():
   return CACHED_ODDS_RESULTS
 
 def get_money_line_price(team):
-  res = get_odds_results().get(get_stripped_team_val(team), 'Not Found')
-  return res if res == 'Not Found' else res['moneyline_price']
+  res = get_odds_results().get(team)
+  return res if res is None else res['moneyline_price']
 
 def get_over_odds(team):
-  res = get_odds_results().get(team, 'Not Found')
-  return res if res == 'Not Found' else res['over_under_price_o']
+  res = get_odds_results().get(team)
+  return res if res is None else res['over_under_price_o']
 
 def get_under_odds(team):
-  res = get_odds_results().get(team, 'Not Found')
-  return res if res == 'Not Found' else res['over_under_price_u']
+  res = get_odds_results().get(team)
+  return res if res is None else res['over_under_price_u']
 
 def get_total_line(team):
-  res = get_odds_results().get(team, 'Not Found')
-  return res if res == 'Not Found' else res['over_under_line']
+  res = get_odds_results().get(team)
+  return res if res is None else res['over_under_line']
 
 def get_spread_line(team):
-  res = get_odds_results().get(team, 'Not Found')
-  return res if res == 'Not Found' else res['spread_line']
+  res = get_odds_results().get(team)
+  return res if res is None else res['spread_line']
 
 def get_spread_odds(team):
-  res = get_odds_results().get(team, 'Not Found')
-  return res if res == 'Not Found' else res['spread_price']
+  res = get_odds_results().get(team)
+  return res if res is None else res['spread_price']
 
 def get_stripped_team_val(team):
   return " ".join(team.split()[-2:]) if team.split()[-1] in ['Sox', 'Jays'] else team.split()[-1]
