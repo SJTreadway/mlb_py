@@ -1,3 +1,5 @@
+import re
+import time
 import os
 import numpy as np
 import pandas as pd
@@ -7,9 +9,13 @@ import requests
 
 from tqdm import tqdm
 
-from helpers import roll_column, strip_suffix
+from pybaseball import playerid_reverse_lookup
+
+from helpers import roll_column, strip_suffix, get_team_league_map
 
 URL_PREFIX = 'https://www.retrosheet.org/boxesetc/'
+BREF_URL_PREFIX = 'https://www.baseball-reference.com/players/gl.fcgi'
+YEAR = 2025
 WINDOWS = [10,35,75]
 
 def process_pitching_data(df):
@@ -19,7 +25,7 @@ def process_pitching_data(df):
 
   # step 1: get pitching data for all starting pitchers and store to csv
   load_pitching_data(start_pitchers_all)
-  
+
   # step 2: load data from files and store into dataframe
   strt_pitch_df = get_rolling_pitching_feats(df, start_pitchers_all)
   
@@ -30,6 +36,8 @@ def load_pitching_data(start_pitchers_all):
   for p_id in tqdm(start_pitchers_all):
     if p_id:
       df_temp = get_full_pitching_data(p_id)
+      df_season = get_bref_current_season_data(p_id)
+      df_temp = pd.concat((df_temp, df_season))
       fname_out = 'data/pitch/pitching_data_'+p_id+'.csv'
       if not os.path.exists(fname_out):
         df_temp.to_csv(fname_out, index=False)
@@ -43,6 +51,97 @@ def get_full_pitching_data(pitcher_id):
   for url in link_list:
     df_pitching = pd.concat((df_pitching, get_season_pitching_data(url)))
   return df_pitching
+
+def get_bref_current_season_data(pid):
+  time.sleep(1)
+  bref_pid = None
+  rev_lkp = playerid_reverse_lookup([pid], key_type='retro')
+  if rev_lkp is not None:
+    bref_pid = rev_lkp.loc[0]['key_bbref']
+  url = BREF_URL_PREFIX+'?id='+bref_pid+'&t=p&year='+str(YEAR)
+  page = requests.get(url)
+  soup = BeautifulSoup(page.content, 'html.parser')
+  target_element = soup.find("table", id="pitching_gamelogs").find('tbody')
+  working_part = list(target_element.find_all('tr'))
+  mod_header = ['at_vs','Opponent','League', 'GS', 'CG', 'SHO', 'GF', 'SV', 'IP', 'H',
+      'BFP', 'HR', 'R', 'ER', 'BB', 'IB', 'SO', 'SH', 'SF', 'WP', 'HBP',
+      'BK', 'x2B', 'x3B', 'GDP', 'ROE', 'W', 'L', 'ERA']
+  bref_headers = ['team_homeORaway', 'opp_ID', 'player_game_span', 'CG', 'GF', 'SV', 'IP', 'H',
+      'BF', 'HR', 'R', 'ER', 'BB', 'IBB', 'SO', 'SF', 'HBP',
+      '2B', '3B', 'GDP', 'ROE', 'player_game_result', 'earned_run_avg']
+  date_list = []
+  dblhead_num_list = []
+  for k in range(0, len(working_part)):
+    td_cells = working_part[k].find_all("td", attrs={"data-stat": True})
+    for d in range(0, len(td_cells)):
+      if td_cells[d]["data-stat"] == "date_game":
+        dat = td_cells[d]['csk'].split('.')[0]
+        date_list.append(dat)
+        dbl_head_num = ''.join(
+            str(c) for c in td_cells[d].contents if not getattr(c, 'name', None) == 'a'
+        ).strip()
+        digit = re.sub(r'[()]', '', dbl_head_num)
+        dblhead_num_list.append(str(digit) if digit else '')
+
+  main_data_matrix = []
+  matrix_to_convert = []
+  for k in range(0, len(working_part)):
+    td_cells = working_part[k].find_all("td", attrs={"data-stat": True})
+    data = {
+      td["data-stat"]: td.get_text(strip=True)
+      for td in td_cells
+      if td["data-stat"] in bref_headers
+    }
+    matrix_to_convert.append(data)
+    
+  main_data_matrix = convert_header_values(matrix_to_convert)
+  pitch_df = pd.DataFrame(main_data_matrix, columns = mod_header)
+  pitch_df['date'] = date_list
+  pitch_df['dblhead_num'] = dblhead_num_list
+  return pitch_df
+
+def convert_header_values(main_data_matrix):
+  converted_matrix = []
+  team_league_map = get_team_league_map()
+  for row in main_data_matrix:
+    #for key in row:
+    try:
+      converted_matrix.append({
+        'at_vs': 'AT' if row.get('team_homeORaway', '') == '@' else 'VS',
+        'Opponent': row.get('opp_ID', ''),
+        'League': team_league_map[row.get('opp_ID', '')],
+        'GS': 1 if row.get('player_game_span', '').split('-')[0] == 'GS' else 0,
+        'CG': 1 if float(row.get('IP', 0)) >= 9.0 else 0,
+        'SHO': 1 if float(row.get('IP', 0)) >= 9.0 and int(row.get('R', 0)) == 0 else 0,
+        'GF': 1 if float(row.get('IP', 0)) >= 9.0 else 0,
+        'SV': 0,  # Placeholder; can be derived if needed
+        'IP': float(row.get('IP', 0)),
+        'H': int(row.get('H', 0)),
+        'BFP': int(row.get('BF', 0)) if 'BF' in row else int(row.get('batters_faced', 0)),
+        'HR': int(row.get('HR', 0)),
+        'R': int(row.get('R', 0)),
+        'ER': int(row.get('ER', 0)),
+        'BB': int(row.get('BB', 0)),
+        'IB': int(row.get('IBB', 0)),
+        'SO': int(row.get('SO', 0)),
+        'SH': int(row.get('SF', 0)),  # Reuse SF for now
+        'SF': int(row.get('SF', 0)),
+        'WP': 0,
+        'HBP': int(row.get('HBP', 0)),
+        'BK': 0,
+        'x2B': int(row.get('2B', 0)),
+        'x3B': int(row.get('3B', 0)),
+        'GDP': int(row.get('GIDP', 0)),
+        'ROE': int(row.get('ROE', 0)),
+        'W': 1 if row.get('player_game_result', '').split('(')[0] == 'W' else 0,
+        'L': 1 if row.get('player_game_result', '').split('(')[0] == 'L' else 0,
+        'ERA': float(row.get('earned_run_avg', 0.0))
+      })
+    except Exception as e:
+      print("Error processing row:", row)
+      print("Exception:", e)
+  return converted_matrix
+ 
 
 ### Get the links to the pitcher-season tables given the pitcher id
 def get_daily_season_links(pitcher_id):

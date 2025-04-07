@@ -10,7 +10,9 @@ from helpers import roll_column
 from bs4 import BeautifulSoup
 
 URL_PREFIX = 'https://www.retrosheet.org/boxesetc/'
+BREF_URL_PREFIX = 'https://www.baseball-reference.com/players/gl.fcgi'
 WINDOWS = [30,75,162,350]
+YEAR = 2025
 
 def process_batting_data(df):
   # step 1: get unique batter ids from our dataframe
@@ -23,11 +25,22 @@ def process_batting_data(df):
   
   # step 2: store batter data for each batter id to csv
   load_batting_data(batter_ids)
+
+  # get current season data from BREF
+  #get_bref_current_season_data(batter_ids[-1])
   
   # step 3: add in all batting feature
   bat_df = get_batting_feats(df, batter_ids)
 
   return get_lineup_averages(bat_df)
+
+def load_batting_data(batter_ids):
+  for i,b_id in tqdm(enumerate(batter_ids), total=len(batter_ids)):
+    if b_id:
+      df_temp = get_full_batting_data(b_id)
+      fname_out = 'data/bat/batting_data_'+b_id+'.csv'
+      if not os.path.exists(fname_out):
+        df_temp.to_csv(fname_out, index=False)
 
 # Get all the data for a particular batter
 def get_full_batting_data(batter_id):
@@ -39,13 +52,14 @@ def get_full_batting_data(batter_id):
     df_batting = pd.concat((df_batting, get_season_batting_data(url)))
   return df_batting
 
-def load_batting_data(batter_ids):
-  for i,b_id in tqdm(enumerate(batter_ids), total=len(batter_ids)):
-    if b_id:
-      df_temp = get_full_batting_data(b_id)
-      fname_out = 'data/bat/batting_data_'+b_id+'.csv'
-      if not os.path.exists(fname_out):
-        df_temp.to_csv(fname_out, index=False)
+        
+def get_bref_current_season_data(pid):
+  url = BREF_URL_PREFIX+'?id='+pid+'&t=b&year='+str(YEAR)
+  page = requests.get(url)
+  soup = BeautifulSoup(page.content, 'html.parser')
+  html=list(soup.children)
+  return None
+ 
 
 def get_daily_season_links(batter_id):
   letter = batter_id.upper()[0]

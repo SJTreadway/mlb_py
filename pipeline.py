@@ -218,11 +218,12 @@ def lambda_handler(event, context):
 
   # calculate our edge
   lineup_w_pitching_batting_team_df['edge_h'] = lineup_w_pitching_batting_team_df.apply(lambda row: calculate_edge(row['prob'], row['moneyline_h']), axis=1)
-  lineup_w_pitching_batting_team_df['edge_v'] = lineup_w_pitching_batting_team_df.apply(lambda row: calculate_edge(row['prob'], row['moneyline_v']), axis=1)
+  lineup_w_pitching_batting_team_df['edge_v'] = lineup_w_pitching_batting_team_df.apply(lambda row: calculate_edge(1-row['prob'], row['moneyline_v']), axis=1)
 
   run_total_probs = predict_runs_scored(df_runs.loc[:, RUNS_SCORED_FEAT_SET])
   df_runs['total_runs_predicted'] = df_runs.apply(lambda row: get_runs_scored_prob(run_total_probs, row['over_under_line']), axis=1)
 
+  lineup_w_pitching_batting_team_df.reset_index(drop=True, inplace=True)
   print_todays_home_victory_preds(lineup_w_pitching_batting_team_df)
   
   print_todays_totals_preds(df_runs)

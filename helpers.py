@@ -13,3 +13,14 @@ def agg_non_na(series):
 # strip away suffix, e.g., '_h', '_v', for given column
 def strip_suffix(col, suffix):
   return col[:-len(suffix)] if col.endswith(suffix) else col
+
+def get_team_league_map():
+  return {
+  'BAL': 'A', 'BOS': 'A', 'CHW': 'A', 'CLE': 'A', 'DET': 'A',
+  'HOU': 'A', 'KCR': 'A', 'LAA': 'A', 'MIN': 'A', 'NYY': 'A',
+  'ATH': 'A', 'SEA': 'A', 'TBR': 'A', 'TEX': 'A', 'TOR': 'A',
+
+  'ARI': 'N', 'ATL': 'N', 'CHC': 'N', 'CIN': 'N', 'COL': 'N',
+  'LAD': 'N', 'MIA': 'N', 'MIL': 'N', 'NYM': 'N', 'PHI': 'N',
+  'PIT': 'N', 'SDP': 'N', 'SFG': 'N', 'STL': 'N', 'WSN': 'N'
+}

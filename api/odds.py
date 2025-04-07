@@ -36,12 +36,12 @@ def prob_to_line(prob):
 
   return None if pd.isna(line) else line
 
-def line_to_bet(model_prob, advantage=0.04):
+def line_to_bet(model_prob):
   if model_prob is None or not (0 < model_prob < 1):
     return None
 
   # The implied line you'd be willing to bet at:
-  target_implied_prob = model_prob - advantage
+  target_implied_prob = model_prob
 
   if target_implied_prob <= 0 or target_implied_prob >= 1:
     return None  # Avoid divide-by-zero or nonsensical odds

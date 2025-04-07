@@ -73,7 +73,6 @@ def get_lineups():
         pitcherid = pitcherid.iloc[0] if isinstance(pitcherid, pd.Series) and not pitcherid.empty else ''
         
         current_game.update({
-          #'date': date,
           'date_dblhead': date_dblhead,
           'game_time': game_time,
           'team_h': team_h,
