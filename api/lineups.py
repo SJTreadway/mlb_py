@@ -22,6 +22,8 @@ TOMORROW_GAMES = int(os.environ['TOMORROW_GAMES'])
 # Rotowire URL for Daily Lineups
 RW_URL = "https://www.rotowire.com/baseball/daily-lineups.php"
 
+YEAR = int(os.environ['YEAR'])
+
 def get_lineups():
   url = RW_URL if TOMORROW_GAMES == 0 else RW_URL + '?date=tomorrow'
   soup = BeautifulSoup(requests.get(url).content, "html.parser")
@@ -112,7 +114,9 @@ def get_lineups():
         # Batter Data
         name = e.a.get('title').split(' ')
         f_name, l_name = name[0], name[-1]
-        batterid = playerid_lookup(l_name, f_name).get('key_retro')
+        player_df = playerid_lookup(l_name, f_name)
+        filtered_df = player_df[player_df['mlb_played_last'] >= YEAR - 1]
+        batterid = filtered_df.get('key_retro')
         suffix = "_h" if team_type == "is-home" else "_v"
 
         # Check if batterid lookup returned a value

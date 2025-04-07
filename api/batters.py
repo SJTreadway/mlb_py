@@ -16,7 +16,7 @@ from bs4 import BeautifulSoup
 URL_PREFIX = 'https://www.retrosheet.org/boxesetc/'
 BREF_URL_PREFIX = 'https://www.baseball-reference.com/players/gl.fcgi'
 WINDOWS = [30,75,162,350]
-YEAR = 2025
+YEAR = int(os.environ['YEAR'])
 
 def process_batting_data(df):
   # step 1: get unique batter ids from our dataframe
@@ -83,7 +83,7 @@ def get_bref_current_season_data(pid):
     for d in range(0, len(td_cells)):
       if td_cells[d]["data-stat"] == "date":
         dat = td_cells[d].get_text(strip=True).split(' ')
-        date_list.append(dat[0])
+        date_list.append(pd.to_datetime(dat[0]).strftime('%-m-%-d-%Y'))
         digit = '' if len(dat) == 1 else re.sub(r'[()]', '', dat[1])
         dblhead_num_list.append(str(digit) if digit else '')
 
@@ -220,7 +220,7 @@ def process_batter_df(b_id):
 
     batter_df['date'] = pd.to_datetime(batter_df['date'], format='%m-%d-%Y').dt.strftime('%Y%m%d').astype(int)
     t_col = batter_df['dblhead_num'].copy()
-    t_col[np.isnan(t_col)] = 0
+    t_col = t_col.fillna(0)
     batter_df['dblheader_int'] = t_col.astype(int)
     for winsize in WINDOWS:
       suff = str(winsize)
@@ -294,7 +294,7 @@ def process_batter_df(b_id):
       batter_df.set_index('date_dblhead', inplace=True)
   except Exception as e:
     try:
-      print(f'issue for {fname} at position {pos}, returning None')
+      print(f'issue for {fname} at position {pos}, returning None: {e}')
     except:
       print(f'issue for {fname}, returning None')
     batter_df = None
@@ -335,14 +335,14 @@ def get_batting_feats(df, batter_ids):
             try:
               curr_batter_row = curr_batter_df.loc[date_dblhead,:]
             except:
-              print(f'date not found for batter {curr_b_id} game {date_dblhead}')
+              #print(f'date not found for batter {curr_b_id} game {date_dblhead}')
               prev_game_indices = np.where(curr_batter_df.index<date_dblhead)[0]
               if len(prev_game_indices)==0:
                 index_to_use = 0
               else:
                 index_to_use = np.max(prev_game_indices)
               curr_batter_row = curr_batter_df.iloc[index_to_use,:]
-              print(f'using date {curr_batter_df.index[index_to_use]}')
+              #print(f'using date {curr_batter_df.index[index_to_use]}')
             if (curr_batter_row.ndim>1):
               curr_batter_row = curr_batter_row.iloc[0,:]
             for stem in colstems:

@@ -15,7 +15,7 @@ from helpers import roll_column, strip_suffix, get_team_league_map
 
 URL_PREFIX = 'https://www.retrosheet.org/boxesetc/'
 BREF_URL_PREFIX = 'https://www.baseball-reference.com/players/gl.fcgi'
-YEAR = 2025
+YEAR = int(os.environ['YEAR'])
 WINDOWS = [10,35,75]
 
 def process_pitching_data(df):
@@ -80,7 +80,7 @@ def get_bref_current_season_data(pid):
     for d in range(0, len(td_cells)):
       if td_cells[d]["data-stat"] == "date_game":
         dat = td_cells[d]['csk'].split('.')[0]
-        date_list.append(dat)
+        date_list.append(pd.to_datetime(dat).strftime('%-m-%-d-%Y'))
         dbl_head_num = ''.join(
             str(c) for c in td_cells[d].contents if not getattr(c, 'name', None) == 'a'
         ).strip()
