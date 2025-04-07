@@ -61,7 +61,11 @@ def get_bref_current_season_data(pid):
   url = BREF_URL_PREFIX+'?id='+bref_pid+'&t=p&year='+str(YEAR)
   page = requests.get(url)
   soup = BeautifulSoup(page.content, 'html.parser')
-  target_element = soup.find("table", id="pitching_gamelogs").find('tbody')
+  target_table = soup.find("table", id="pitching_gamelogs")
+  if target_table is None:
+    #print(f'Skipping pitcher {pid} ({bref_pid}) No table found. ')
+    return pd.DataFrame()
+  target_element = target_table.find('tbody')
   working_part = list(target_element.find_all('tr'))
   mod_header = ['at_vs','Opponent','League', 'GS', 'CG', 'SHO', 'GF', 'SV', 'IP', 'H',
       'BFP', 'HR', 'R', 'ER', 'BB', 'IB', 'SO', 'SH', 'SF', 'WP', 'HBP',
@@ -87,12 +91,13 @@ def get_bref_current_season_data(pid):
   matrix_to_convert = []
   for k in range(0, len(working_part)):
     td_cells = working_part[k].find_all("td", attrs={"data-stat": True})
-    data = {
-      td["data-stat"]: td.get_text(strip=True)
-      for td in td_cells
-      if td["data-stat"] in bref_headers
-    }
-    matrix_to_convert.append(data)
+    if (len(td_cells) > 0):
+      data = {
+        td["data-stat"]: td.get_text(strip=True)
+        for td in td_cells
+        if td["data-stat"] in bref_headers
+      }
+      matrix_to_convert.append(data)
     
   main_data_matrix = convert_header_values(matrix_to_convert)
   pitch_df = pd.DataFrame(main_data_matrix, columns = mod_header)
@@ -104,42 +109,39 @@ def convert_header_values(main_data_matrix):
   converted_matrix = []
   team_league_map = get_team_league_map()
   for row in main_data_matrix:
-    #for key in row:
-    try:
-      converted_matrix.append({
-        'at_vs': 'AT' if row.get('team_homeORaway', '') == '@' else 'VS',
-        'Opponent': row.get('opp_ID', ''),
-        'League': team_league_map[row.get('opp_ID', '')],
-        'GS': 1 if row.get('player_game_span', '').split('-')[0] == 'GS' else 0,
-        'CG': 1 if float(row.get('IP', 0)) >= 9.0 else 0,
-        'SHO': 1 if float(row.get('IP', 0)) >= 9.0 and int(row.get('R', 0)) == 0 else 0,
-        'GF': 1 if float(row.get('IP', 0)) >= 9.0 else 0,
-        'SV': 0,  # Placeholder; can be derived if needed
-        'IP': float(row.get('IP', 0)),
-        'H': int(row.get('H', 0)),
-        'BFP': int(row.get('BF', 0)) if 'BF' in row else int(row.get('batters_faced', 0)),
-        'HR': int(row.get('HR', 0)),
-        'R': int(row.get('R', 0)),
-        'ER': int(row.get('ER', 0)),
-        'BB': int(row.get('BB', 0)),
-        'IB': int(row.get('IBB', 0)),
-        'SO': int(row.get('SO', 0)),
-        'SH': int(row.get('SF', 0)),  # Reuse SF for now
-        'SF': int(row.get('SF', 0)),
-        'WP': 0,
-        'HBP': int(row.get('HBP', 0)),
-        'BK': 0,
-        'x2B': int(row.get('2B', 0)),
-        'x3B': int(row.get('3B', 0)),
-        'GDP': int(row.get('GIDP', 0)),
-        'ROE': int(row.get('ROE', 0)),
-        'W': 1 if row.get('player_game_result', '').split('(')[0] == 'W' else 0,
-        'L': 1 if row.get('player_game_result', '').split('(')[0] == 'L' else 0,
-        'ERA': float(row.get('earned_run_avg', 0.0))
-      })
-    except Exception as e:
-      print("Error processing row:", row)
-      print("Exception:", e)
+    opp = row.get('opp_ID', '')
+    pgs = row.get('player_game_span', '').split('-')
+    converted_matrix.append({
+      'at_vs': 'AT' if row.get('team_homeORaway', '') == '@' else 'VS',
+      'Opponent': opp,
+      'League': team_league_map[opp],
+      'GS': 1 if pgs[0] == 'GS' else 0,
+      'CG': 1 if pgs[0] == 'CG' else 0,
+      'SHO': 1 if pgs[0] == 'CG' and int(row.get('R', 0)) == 0 else 0,
+      'GF': 1 if len(pgs) > 1 and pgs[1] == 'GF' else 0,
+      'SV': 0,  # Placeholder; can be derived if needed
+      'IP': row.get('IP', 0),
+      'H': row.get('H', 0),
+      'BFP': row.get('BF', 0) if 'BF' in row else int(row.get('batters_faced', 0)),
+      'HR': row.get('HR', 0),
+      'R': row.get('R', 0),
+      'ER': row.get('ER', 0),
+      'BB': row.get('BB', 0),
+      'IB': row.get('IBB', 0),
+      'SO': row.get('SO', 0),
+      'SH': row.get('SF', 0),  # Reuse SF for now
+      'SF': row.get('SF', 0),
+      'WP': 0,
+      'HBP': row.get('HBP', 0),
+      'BK': 0,
+      'x2B': row.get('2B', 0),
+      'x3B': row.get('3B', 0),
+      'GDP': row.get('GIDP', 0),
+      'ROE': row.get('ROE', 0),
+      'W': 1 if row.get('player_game_result', '').split('(')[0] == 'W' else 0,
+      'L': 1 if row.get('player_game_result', '').split('(')[0] == 'L' else 0,
+      'ERA': row.get('earned_run_avg', 0.0)
+    })
   return converted_matrix
  
 

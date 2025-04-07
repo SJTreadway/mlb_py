@@ -1,11 +1,15 @@
+import re
 import os
+import time
 import pandas as pd
 import numpy as np
 import requests
 
 from tqdm import tqdm
 
-from helpers import roll_column
+from helpers import roll_column, get_team_league_map
+
+from pybaseball import playerid_reverse_lookup
 
 from bs4 import BeautifulSoup
 
@@ -25,9 +29,6 @@ def process_batting_data(df):
   
   # step 2: store batter data for each batter id to csv
   load_batting_data(batter_ids)
-
-  # get current season data from BREF
-  #get_bref_current_season_data(batter_ids[-1])
   
   # step 3: add in all batting feature
   bat_df = get_batting_feats(df, batter_ids)
@@ -38,6 +39,8 @@ def load_batting_data(batter_ids):
   for i,b_id in tqdm(enumerate(batter_ids), total=len(batter_ids)):
     if b_id:
       df_temp = get_full_batting_data(b_id)
+      df_season = get_bref_current_season_data(b_id)
+      df_temp = pd.concat((df_temp, df_season))
       fname_out = 'data/bat/batting_data_'+b_id+'.csv'
       if not os.path.exists(fname_out):
         df_temp.to_csv(fname_out, index=False)
@@ -51,15 +54,92 @@ def get_full_batting_data(batter_id):
   for url in link_list:
     df_batting = pd.concat((df_batting, get_season_batting_data(url)))
   return df_batting
-
         
 def get_bref_current_season_data(pid):
-  url = BREF_URL_PREFIX+'?id='+pid+'&t=b&year='+str(YEAR)
+  time.sleep(1)
+  bref_pid = None
+  rev_lkp = playerid_reverse_lookup([pid], key_type='retro')
+  if rev_lkp is not None:
+    bref_pid = rev_lkp.loc[0]['key_bbref']
+  url = BREF_URL_PREFIX+'?id='+bref_pid+'&t=b&year='+str(YEAR)
   page = requests.get(url)
   soup = BeautifulSoup(page.content, 'html.parser')
-  html=list(soup.children)
-  return None
- 
+  target_table = soup.find("table", id="players_standard_batting")
+  if target_table is None:
+    #print(f'Skipping batter {pid} ({bref_pid}) No table found. ')
+    return pd.DataFrame()
+  target_element = target_table.find('tbody')
+  working_part = list(target_element.find_all('tr'))
+  mod_header = ['at_vs','Opponent','League', 'GS', 'AB', 'R', 'H', 'x2B', 'x3B', 'HR',
+      'RBI', 'BB', 'IBB', 'SO', 'HBP', 'SH', 'SF', 'XI', 'ROE', 'GDP',
+      'SB', 'CS', 'AVG', 'OBP', 'SLG', 'BP', 'Pos']
+  bref_headers = ['game_location', 'opp_name_abbr', 'b_player_game_span', 'b_ab', 'b_r', 'b_h', 'b_doubles', 'b_triples', 'b_hr',
+      'b_rbi', 'b_bb', 'b_ibb', 'b_so', 'b_hbp', 'b_sh', 'b_sf', 'b_gidp',
+      'b_sb', 'b_cs', 'b_batting_avg_cume', 'b_onbase_perc_cume', 'b_slugging_perc_cume', 'b_lineup_position', 'pos_game']
+  date_list = []
+  dblhead_num_list = []
+  for k in range(0, len(working_part)):
+    td_cells = working_part[k].find_all("td", attrs={"data-stat": True})
+    for d in range(0, len(td_cells)):
+      if td_cells[d]["data-stat"] == "date":
+        dat = td_cells[d].get_text(strip=True).split(' ')
+        date_list.append(dat[0])
+        digit = '' if len(dat) == 1 else re.sub(r'[()]', '', dat[1])
+        dblhead_num_list.append(str(digit) if digit else '')
+
+  main_data_matrix = []
+  matrix_to_convert = []
+  for k in range(0, len(working_part)):
+    td_cells = working_part[k].find_all("td", attrs={"data-stat": True})
+    if (len(td_cells) > 0):
+      data = {
+        td["data-stat"]: td.get_text(strip=True)
+        for td in td_cells
+        if td["data-stat"] in bref_headers
+      }
+      matrix_to_convert.append(data)
+    
+  main_data_matrix = convert_header_values(matrix_to_convert)
+  batter_df = pd.DataFrame(main_data_matrix, columns = mod_header)
+  batter_df['date'] = date_list
+  batter_df['dblhead_num'] = dblhead_num_list
+  return batter_df
+
+def convert_header_values(main_data_matrix):
+  converted_matrix = []
+  team_league_map = get_team_league_map()
+  for row in main_data_matrix:
+    opp = row.get('opp_name_abbr', '')
+    converted_matrix.append({
+      'at_vs': 'AT' if row.get('game_location', '') == '@' else 'VS',
+      'Opponent': opp,
+      'League': team_league_map[opp],
+      'GS': 1 if row.get('b_player_game_span', '').split('-')[0] == 'GS' else 0,
+      'AB': row.get('b_ab', 0),
+      'R': row.get('b_r', 0),
+      'H': row.get('b_h', 0),
+      'x2B': row.get('b_doubles', 0),
+      'x3B': row.get('b_triples', 0),
+      'HR': row.get('b_hr', 0),
+      'RBI': row.get('b_rbi', 0),
+      'BB': row.get('b_bb', 0),
+      'IBB': row.get('b_ibb', 0),
+      'SO': row.get('b_so', 0),
+      'HBP': row.get('b_hbp', 0),
+      'SH': row.get('b_sh', 0),
+      'SF': row.get('b_sh', 0),
+      'XI': 0,
+      'ROE': 0,
+      'GDP': row.get('b_gidp', 0),
+      'SB': row.get('b_sb', 0),
+      'CS': row.get('b_cs', 0),
+      'AVG': row.get('b_batting_avg_cume', 0),
+      'OBP': row.get('b_onbase_perc_cume', 0),
+      'SLG': row.get('b_slugging_perc_cume', 0),
+      'BP': row.get('b_lineup_position', 0),
+      'Pos': ','.join(row.get('pos_game').lower().split())
+    })
+  return converted_matrix
 
 def get_daily_season_links(batter_id):
   letter = batter_id.upper()[0]
