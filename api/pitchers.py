@@ -35,12 +35,19 @@ def process_pitching_data(df):
 def load_pitching_data(start_pitchers_all):
   for p_id in tqdm(start_pitchers_all):
     if p_id:
-      df_temp = get_full_pitching_data(p_id)
-      df_season = get_bref_current_season_data(p_id)
-      df_temp = pd.concat((df_temp, df_season))
       fname_out = 'data/pitch/pitching_data_'+p_id+'.csv'
+      df_season = get_bref_current_season_data(p_id)
       if not os.path.exists(fname_out):
-        df_temp.to_csv(fname_out, index=False)
+        df_temp = get_full_pitching_data(p_id)
+        df_temp = pd.concat((df_temp, df_season))
+      else:
+        # Load existing data and concatenate
+        df_existing = pd.read_csv(fname_out)
+        df_temp = pd.concat((df_existing, df_season))
+        # Optional: remove duplicates
+        df_temp = df_temp.drop_duplicates()
+      # Save the updated data
+      df_temp.to_csv(fname_out, index=False)
 
 # Get all the data for a particular pitcher
 def get_full_pitching_data(pitcher_id):

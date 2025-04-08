@@ -36,14 +36,21 @@ def process_batting_data(df):
   return get_lineup_averages(bat_df)
 
 def load_batting_data(batter_ids):
-  for i,b_id in tqdm(enumerate(batter_ids), total=len(batter_ids)):
+  for b_id in tqdm(batter_ids):
     if b_id:
-      df_temp = get_full_batting_data(b_id)
-      df_season = get_bref_current_season_data(b_id)
-      df_temp = pd.concat((df_temp, df_season))
       fname_out = 'data/bat/batting_data_'+b_id+'.csv'
+      df_season = get_bref_current_season_data(b_id)
       if not os.path.exists(fname_out):
-        df_temp.to_csv(fname_out, index=False)
+        df_temp = get_full_batting_data(b_id)
+        df_temp = pd.concat((df_temp, df_season))
+      else:
+        # Load existing data and concatenate
+        df_existing = pd.read_csv(fname_out)
+        df_temp = pd.concat((df_existing, df_season))
+        # Optional: remove duplicates
+        df_temp = df_temp.drop_duplicates()
+      # Save the updated data
+      df_temp.to_csv(fname_out, index=False)
 
 # Get all the data for a particular batter
 def get_full_batting_data(batter_id):

@@ -184,6 +184,7 @@ def lambda_handler(event, context):
   else:
     print('\nLoading Lineup Data')
     df = get_lineups()
+
     # Get/Store Starting Pitching Data to Files
     print('\nLoading Pitching Data')
     lineup_w_pitching_df = process_pitching_data(df)
