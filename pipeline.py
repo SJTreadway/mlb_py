@@ -145,7 +145,7 @@ def print_todays_home_victory_preds(df):
     'moneyline_value_line_v': 'Line to Bet (V)',
     'edge_v': 'Edge (V)'
   })
-  df.sort_values('Time', ascending=True, inplace=True)
+  df.sort_values('Date', ascending=True, inplace=True)
   cols = [
     'Date', 'Time', 'Visitor', 'Probable Starter (V)', 
     'Home', 'Probable Starter (H)', 'ML (H)', 'Line to Bet (H)',
@@ -164,7 +164,7 @@ def print_todays_totals_preds(df):
     'over_under_price_u': 'Under Price',
     'total_runs_predicted': 'Total Runs Predicted'
   })
-  df.sort_values('Time', ascending=True, inplace=True)
+  df.sort_values('Date', ascending=True, inplace=True)
   cols = [
     'Date', 'Time', 'Visitor', 'Home', 'O/U Line',
     'Over Price', 'Under Price', 'Total Runs Predicted'
