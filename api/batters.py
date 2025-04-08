@@ -63,7 +63,7 @@ def get_full_batting_data(batter_id):
   return df_batting
         
 def get_bref_current_season_data(pid):
-  time.sleep(1)
+  time.sleep(3.1) # add delay due to 20 req/min restriction by sportsreference site
   bref_pid = None
   rev_lkp = playerid_reverse_lookup([pid], key_type='retro')
   if rev_lkp is not None:
