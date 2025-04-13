@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 from pybaseball import playerid_reverse_lookup
 
-from helpers import roll_column, strip_suffix, get_team_league_map
+from helpers import roll_column, strip_suffix, get_team_league_map, safe_float, safe_int
 
 URL_PREFIX = 'https://www.retrosheet.org/boxesetc/'
 BREF_URL_PREFIX = 'https://www.baseball-reference.com/players/gl.fcgi'
@@ -41,12 +41,12 @@ def load_pitching_data(start_pitchers_all):
         df_temp = get_full_pitching_data(p_id)
         df_temp = pd.concat((df_temp, df_season))
       else:
-        # Load existing data and concatenate
+        # load existing data and concatenate
         df_existing = pd.read_csv(fname_out)
         df_temp = pd.concat((df_existing, df_season))
-        # Optional: remove duplicates
-        df_temp = df_temp.drop_duplicates()
-      # Save the updated data
+        # remove duplicates
+        df_temp = df_temp.drop_duplicates(subset=['date', 'dblhead_num'], keep='first')
+      # save the updated data
       df_temp.to_csv(fname_out, index=False)
 
 # Get all the data for a particular pitcher
@@ -127,27 +127,27 @@ def convert_header_values(main_data_matrix):
       'SHO': 1 if pgs[0] == 'CG' and int(row.get('R', 0)) == 0 else 0,
       'GF': 1 if len(pgs) > 1 and pgs[1] == 'GF' else 0,
       'SV': 0,  # Placeholder; can be derived if needed
-      'IP': row.get('IP', 0),
-      'H': row.get('H', 0),
-      'BFP': row.get('BF', 0) if 'BF' in row else int(row.get('batters_faced', 0)),
-      'HR': row.get('HR', 0),
-      'R': row.get('R', 0),
-      'ER': row.get('ER', 0),
-      'BB': row.get('BB', 0),
-      'IB': row.get('IBB', 0),
-      'SO': row.get('SO', 0),
-      'SH': row.get('SF', 0),  # Reuse SF for now
-      'SF': row.get('SF', 0),
+      'IP': safe_float(row.get('IP', 0)),
+      'H': safe_float(row.get('H', 0)),
+      'BFP': safe_int(row.get('BF', 0)) if 'BF' in row else safe_int(row.get('batters_faced', 0)),
+      'HR': safe_int(row.get('HR', 0)),
+      'R': safe_int(row.get('R', 0)),
+      'ER': safe_int(row.get('ER', 0)),
+      'BB': safe_int(row.get('BB', 0)),
+      'IB': safe_int(row.get('IBB', 0)),
+      'SO': safe_int(row.get('SO', 0)),
+      'SH': safe_int(row.get('SF', 0)),  # Reuse SF for now
+      'SF': safe_int(row.get('SF', 0)),
       'WP': 0,
-      'HBP': row.get('HBP', 0),
+      'HBP': safe_int(row.get('HBP', 0)),
       'BK': 0,
-      'x2B': row.get('2B', 0),
-      'x3B': row.get('3B', 0),
-      'GDP': row.get('GIDP', 0),
-      'ROE': row.get('ROE', 0),
+      'x2B': safe_int(row.get('2B', 0)),
+      'x3B': safe_int(row.get('3B', 0)),
+      'GDP': safe_int(row.get('GIDP', 0)),
+      'ROE': safe_int(row.get('ROE', 0)),
       'W': 1 if row.get('player_game_result', '').split('(')[0] == 'W' else 0,
       'L': 1 if row.get('player_game_result', '').split('(')[0] == 'L' else 0,
-      'ERA': row.get('earned_run_avg', 0.0)
+      'ERA': safe_float(row.get('earned_run_avg', 0.0))
     })
   return converted_matrix
  

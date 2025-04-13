@@ -7,7 +7,7 @@ import requests
 
 from tqdm import tqdm
 
-from helpers import roll_column, get_team_league_map
+from helpers import roll_column, get_team_league_map, safe_float, safe_int
 
 from pybaseball import playerid_reverse_lookup
 
@@ -44,12 +44,12 @@ def load_batting_data(batter_ids):
         df_temp = get_full_batting_data(b_id)
         df_temp = pd.concat((df_temp, df_season))
       else:
-        # Load existing data and concatenate
+        # load existing data and concatenate
         df_existing = pd.read_csv(fname_out)
         df_temp = pd.concat((df_existing, df_season))
-        # Optional: remove duplicates
-        df_temp = df_temp.drop_duplicates()
-      # Save the updated data
+        # remove duplicates
+        df_temp = df_temp.drop_duplicates(subset=['date', 'dblhead_num'], keep='first')
+      # save the updated data
       df_temp.to_csv(fname_out, index=False)
 
 # Get all the data for a particular batter
@@ -122,28 +122,28 @@ def convert_header_values(main_data_matrix):
       'Opponent': opp,
       'League': team_league_map[opp],
       'GS': 1 if row.get('b_player_game_span', '').split('-')[0] == 'GS' else 0,
-      'AB': row.get('b_ab', 0),
-      'R': row.get('b_r', 0),
-      'H': row.get('b_h', 0),
-      'x2B': row.get('b_doubles', 0),
-      'x3B': row.get('b_triples', 0),
-      'HR': row.get('b_hr', 0),
-      'RBI': row.get('b_rbi', 0),
-      'BB': row.get('b_bb', 0),
-      'IBB': row.get('b_ibb', 0),
-      'SO': row.get('b_so', 0),
-      'HBP': row.get('b_hbp', 0),
-      'SH': row.get('b_sh', 0),
-      'SF': row.get('b_sh', 0),
+      'AB': safe_int(row.get('b_ab', 0)),
+      'R': safe_int(row.get('b_r', 0)),
+      'H': safe_int(row.get('b_h', 0)),
+      'x2B': safe_int(row.get('b_doubles', 0)),
+      'x3B': safe_int(row.get('b_triples', 0)),
+      'HR': safe_int(row.get('b_hr', 0)),
+      'RBI': safe_int(row.get('b_rbi', 0)),
+      'BB': safe_int(row.get('b_bb', 0)),
+      'IBB': safe_int(row.get('b_ibb', 0)),
+      'SO': safe_int(row.get('b_so', 0)),
+      'HBP': safe_int(row.get('b_hbp', 0)),
+      'SH': safe_int(row.get('b_sh', 0)),
+      'SF': safe_int(row.get('b_sh', 0)),
       'XI': 0,
       'ROE': 0,
-      'GDP': row.get('b_gidp', 0),
-      'SB': row.get('b_sb', 0),
-      'CS': row.get('b_cs', 0),
-      'AVG': row.get('b_batting_avg_cume', 0),
-      'OBP': row.get('b_onbase_perc_cume', 0),
-      'SLG': row.get('b_slugging_perc_cume', 0),
-      'BP': row.get('b_lineup_position', 0),
+      'GDP': safe_int(row.get('b_gidp', 0)),
+      'SB': safe_int(row.get('b_sb', 0)),
+      'CS': safe_int(row.get('b_cs', 0)),
+      'AVG': safe_float(row.get('b_batting_avg_cume', 0)),
+      'OBP': safe_float(row.get('b_onbase_perc_cume', 0)),
+      'SLG': safe_float(row.get('b_slugging_perc_cume', 0)),
+      'BP': safe_int(row.get('b_lineup_position', 0)),
       'Pos': ','.join(row.get('pos_game').lower().split())
     })
   return converted_matrix

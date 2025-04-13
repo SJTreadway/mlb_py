@@ -14,6 +14,18 @@ def agg_non_na(series):
 def strip_suffix(col, suffix):
   return col[:-len(suffix)] if col.endswith(suffix) else col
 
+def safe_int(s):
+  try:
+    return int(s)
+  except ValueError:
+    return 0
+  
+def safe_float(s):
+  try:
+    return float(s)
+  except ValueError:
+    return 0
+
 def get_team_league_map():
   return {
   'BAL': 'A', 'BOS': 'A', 'CHW': 'A', 'CLE': 'A', 'DET': 'A',

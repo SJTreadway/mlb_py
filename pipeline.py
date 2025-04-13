@@ -99,14 +99,14 @@ HOME_VICTORY_FEAT_SET = [
 ]
 
 def predict_winner(X):
-  with open('models/win_model.pkl', 'rb') as pickle_file:
+  with open('models/win_model_v1.pkl', 'rb') as pickle_file:
     model = pickle.load(pickle_file)
   pred = model.predict(X)
   prob = model.predict_proba(X)[:, 1]
   return pred, prob
 
 def predict_runs_scored(X):
-  with open('models/runs_scored_model.pkl', 'rb') as pickle_file:
+  with open('models/runs_scored_model_v1.pkl', 'rb') as pickle_file:
     model = pickle.load(pickle_file)
   probs = model.predict_proba(X)
   return probs
