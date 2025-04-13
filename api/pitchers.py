@@ -364,6 +364,7 @@ def get_bullpen_team_df(team, df):
   visit_cols_stripped = [strip_suffix(col,'_v') for col in visit_cols]
   home_cols = [col for col in df.columns if not col.endswith('_v')]
   home_cols_stripped = [strip_suffix(col,'_h') for col in home_cols]    
+
   df_team_v = df[(df.team_v==team)]
   opponent = df_team_v['team_h']
   df_team_v = df_team_v[visit_cols]
@@ -471,7 +472,7 @@ def get_bullpen_data(df):
     'Bpen_rollsum_BB_10', 'Bpen_rollsum_SO_10', 'Bpen_rollsum_HBP_10',
     'Bpen_rollsum_x2B_10', 'Bpen_rollsum_x3B_10', 'Bpen_H_BB_roll_10',
     'Bpen_XB_roll_10', 'Bpen_TB_roll_10', 'Bpen_IP_mod_10',
-    'Bpen_BF_mod_10', 'Bpen_H_BB_mod_10', 'Bpen_Bpen_H_BB_mod2_10',
+    'Bpen_BF_mod_10', 'Bpen_H_BB_mod_10', 'Bpen_H_BB_mod2_10',
     'Bpen_SO_mod_10', 'Bpen_TB_BB_mod_10', 'Bpen_WHIP_10',
     'Bpen_SO_perc_10', 'Bpen_TB_BB_perc_10', 'Bpen_H_BB_perc_10',
     'Bpen_rollsum_IP_35', 'Bpen_rollsum_H_35', 'Bpen_rollsum_BFP_35',
@@ -479,7 +480,7 @@ def get_bullpen_data(df):
     'Bpen_rollsum_SO_35', 'Bpen_rollsum_HBP_35', 'Bpen_rollsum_x2B_35',
     'Bpen_rollsum_x3B_35', 'Bpen_H_BB_roll_35', 'Bpen_XB_roll_35',
     'Bpen_TB_roll_35', 'Bpen_IP_mod_35', 'Bpen_BF_mod_35',
-    'Bpen_H_BB_mod_35', 'Bpen_Bpen_H_BB_mod2_35', 'Bpen_SO_mod_35',
+    'Bpen_H_BB_mod_35', 'Bpen_H_BB_mod2_35', 'Bpen_SO_mod_35',
     'Bpen_TB_BB_mod_35', 'Bpen_WHIP_35', 'Bpen_SO_perc_35',
     'Bpen_TB_BB_perc_35', 'Bpen_H_BB_perc_35', 'Bpen_rollsum_IP_75',
     'Bpen_rollsum_H_75', 'Bpen_rollsum_BFP_75', 'Bpen_rollsum_HR_75',
@@ -487,7 +488,7 @@ def get_bullpen_data(df):
     'Bpen_rollsum_HBP_75', 'Bpen_rollsum_x2B_75', 'Bpen_rollsum_x3B_75',
     'Bpen_H_BB_roll_75', 'Bpen_XB_roll_75', 'Bpen_TB_roll_75',
     'Bpen_IP_mod_75', 'Bpen_BF_mod_75', 'Bpen_H_BB_mod_75',
-    'Bpen_Bpen_H_BB_mod2_75', 'Bpen_SO_mod_75', 'Bpen_TB_BB_mod_75',
+    'Bpen_H_BB_mod2_75', 'Bpen_SO_mod_75', 'Bpen_TB_BB_mod_75',
     'Bpen_WHIP_75', 'Bpen_SO_perc_75', 'Bpen_TB_BB_perc_75',
     'Bpen_H_BB_perc_75']
 
