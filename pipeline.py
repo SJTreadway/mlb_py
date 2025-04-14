@@ -239,7 +239,8 @@ def lambda_handler(event, context):
   lineup_w_pitching_batting_team_df.reset_index(drop=True, inplace=True)
   print_todays_home_victory_preds(lineup_w_pitching_batting_team_df)
   
-  print_todays_totals_preds(df_runs)
+  # not printing df output until o/u preds are fixed
+  #print_todays_totals_preds(df_runs)
   
   #print(f'\nHOME VICTORY FEATS:\n{lineup_w_pitching_batting_team_df.loc[:, HOME_VICTORY_FEAT_SET]}')
   #print(f'\nRUNS SCORED FEATS:\n{df_runs.loc[:, RUNS_SCORED_FEAT_SET]}')
