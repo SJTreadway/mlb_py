@@ -417,7 +417,7 @@ def get_bullpen_team_df(team, df):
     so_perc_col = 'Bpen_SO_perc_'+str(winsize)
     h_bb_perc_col = 'Bpen_H_BB_perc_'+str(winsize)
     h_bb_mod_col = 'Bpen_H_BB_mod_'+str(winsize)
-    h_bb_mod2_col = 'Bpen_Bpen_H_BB_mod2_'+str(winsize)
+    h_bb_mod2_col = 'Bpen_H_BB_mod2_'+str(winsize)
     tb_bb_mod_col = 'Bpen_TB_BB_mod_'+str(winsize)
     tb_bb_perc_col = 'Bpen_TB_BB_perc_'+str(winsize)
     df_team[h_bb_col] = df_team[hit_col]+df_team[bb_col]
