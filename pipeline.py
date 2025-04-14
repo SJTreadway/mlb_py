@@ -129,8 +129,20 @@ def post_to_X():
   post_result = client.create_tweet(text=tweet)
   return 'Tweet Posted to @MoneyballVo!'
 
+def filter_games_by_edge(df):
+  filtered_df = df.copy()
+  filtered_df['edge_h'] = filtered_df['edge_h'].str.replace('%', '').astype(float)
+  filtered_df['edge_v'] = filtered_df['edge_v'].str.replace('%', '').astype(float)
+  filtered_df['prob'] = filtered_df['prob'].astype(float)
+  filtered_df = filtered_df[
+      ((filtered_df['edge_h'] > 4.0) & (filtered_df['prob'] > 0.50)) |
+      ((filtered_df['edge_v'] > 4.0) & ((1 - filtered_df['prob']) > 0.50))
+  ]
+  return filtered_df
+
 def print_todays_home_victory_preds(df):
-  df = df.rename(columns={
+  filtered_df = filter_games_by_edge(df)
+  filtered_df = filtered_df.rename(columns={
     'date_dblhead': 'Date',
     'game_time': 'Time',
     'team_h_full': 'Home',
@@ -145,13 +157,13 @@ def print_todays_home_victory_preds(df):
     'moneyline_value_line_v': 'Line to Bet (V)',
     'edge_v': 'Edge (V)'
   })
-  df.sort_values('Date', ascending=True, inplace=True)
+  filtered_df.sort_values('Date', ascending=True, inplace=True)
   cols = [
     'Date', 'Time', 'Visitor', 'Probable Starter (V)', 
     'Home', 'Probable Starter (H)', 'ML (H)', 'Line to Bet (H)',
     'Edge (H)', 'Prob Win (H)', 'ML (V)', 'Line to Bet (V)', 'Edge (V)'
   ]
-  print(f"\n{df.loc[:,cols]}")
+  print(f"\n{filtered_df.loc[:,cols]}")
   
 def print_todays_totals_preds(df):
   df = df.rename(columns={
