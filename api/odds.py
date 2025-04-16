@@ -131,12 +131,15 @@ def get_odds_results():
   if CACHED_ODDS_RESULTS is not None:
     return CACHED_ODDS_RESULTS
   print('Updating Cache for CACHED_ODDS_RESULTS..')
-  url = f'https://api.the-odds-api.com/v4/sports/baseball_mlb/odds?regions=us&oddsFormat=american&markets=spreads,totals,h2h&apiKey={ODDS_API_KEY}'
-  page = requests.get(url)
-  soup = BeautifulSoup(page.content, 'html.parser')
-  html=list(soup.children)[0]
-  CACHED_ODDS_RESULTS = extract_total_odds(html)
-  return CACHED_ODDS_RESULTS
+  try:
+    url = f'https://api.the-odds-api.com/v4/sports/baseball_mlb/odds?regions=us&oddsFormat=american&markets=spreads,totals,h2h&apiKey={ODDS_API_KEY}'
+    page = requests.get(url)
+    soup = BeautifulSoup(page.content, 'html.parser')
+    html=list(soup.children)[0]
+    CACHED_ODDS_RESULTS = extract_total_odds(html)
+    return CACHED_ODDS_RESULTS
+  except Exception as e:
+    print(f'Error occurred getting Odds: {e}')
 
 def get_money_line_price(team):
   res = get_odds_results().get(team)

@@ -27,6 +27,8 @@ import tweepy
 from dotenv import load_dotenv
 load_dotenv()
 
+DISPLAY_EDGE_ONLY = 1
+EDGE_THRESHOLD = 4.0
 
 # X essentials
 ACCESS_KEY = os.environ['X_ACCESS_KEY']
@@ -116,6 +118,7 @@ def get_runs_scored_prob(probs, line):
   return round(probs[math.ceil(line):].sum()) if not pd.isna(line) else None
 
 def post_to_X():
+  print('\nPosting picks to X')
   client = tweepy.Client(
     bearer_token=BEARER_TOKEN,
     access_token=ACCESS_KEY,
@@ -127,7 +130,7 @@ def post_to_X():
   tweet = f"""xxx"""
 
   post_result = client.create_tweet(text=tweet)
-  return 'Tweet Posted to @MoneyballVo!'
+  print('\nTweet Posted to @MoneyballVo!')
 
 def filter_games_by_edge(df):
   filtered_df = df.copy()
@@ -135,13 +138,16 @@ def filter_games_by_edge(df):
   filtered_df['edge_v'] = filtered_df['edge_v'].str.replace('%', '').astype(float)
   filtered_df['prob'] = filtered_df['prob'].astype(float)
   filtered_df = filtered_df[
-      ((filtered_df['edge_h'] > 4.0) & (filtered_df['prob'] > 0.50)) |
-      ((filtered_df['edge_v'] > 4.0) & ((1 - filtered_df['prob']) > 0.50))
+      ((filtered_df['edge_h'] > EDGE_THRESHOLD) & (filtered_df['prob'] > 0.50)) |
+      ((filtered_df['edge_v'] > EDGE_THRESHOLD) & ((1 - filtered_df['prob']) > 0.50))
   ]
   return filtered_df
 
 def print_todays_home_victory_preds(df):
-  filtered_df = filter_games_by_edge(df)
+  if DISPLAY_EDGE_ONLY == 1:
+    filtered_df = filter_games_by_edge(df)
+  else:
+    filtered_df = df.copy()
   filtered_df = filtered_df.rename(columns={
     'date_dblhead': 'Date',
     'game_time': 'Time',
@@ -152,16 +158,14 @@ def print_todays_home_victory_preds(df):
     'moneyline_h': 'ML (H)',
     'prob': 'Prob Win (H)',
     'edge_h': 'Edge (H)',
-    'moneyline_value_line_h': 'Line to Bet (H)',
     'moneyline_v': 'ML (V)',
-    'moneyline_value_line_v': 'Line to Bet (V)',
     'edge_v': 'Edge (V)'
   })
   filtered_df.sort_values('Date', ascending=True, inplace=True)
   cols = [
     'Date', 'Time', 'Visitor', 'Probable Starter (V)', 
-    'Home', 'Probable Starter (H)', 'ML (H)', 'Line to Bet (H)',
-    'Edge (H)', 'Prob Win (H)', 'ML (V)', 'Line to Bet (V)', 'Edge (V)'
+    'Home', 'Probable Starter (H)', 'ML (H)', 'Edge (H)',
+    'Prob Win (H)', 'ML (V)', 'Edge (V)'
   ]
   print(f"\n{filtered_df.loc[:,cols]}")
   
@@ -226,8 +230,10 @@ def lambda_handler(event, context):
 
   print(f'\nMaking Predictions')
   lineup_w_pitching_batting_team_df['home_victory'], lineup_w_pitching_batting_team_df['prob'] = predict_winner(lineup_w_pitching_batting_df.loc[:, HOME_VICTORY_FEAT_SET])
-  lineup_w_pitching_batting_team_df['moneyline_value_line_h'] = lineup_w_pitching_batting_team_df.apply(lambda row: line_to_bet(row['prob']), axis=1)
-  lineup_w_pitching_batting_team_df['moneyline_value_line_v'] = lineup_w_pitching_batting_team_df.apply(lambda row: line_to_bet(1 - row['prob']), axis=1)
+  
+  # do not believe these fields are needed in output
+  #lineup_w_pitching_batting_team_df['moneyline_value_line_h'] = lineup_w_pitching_batting_team_df.apply(lambda row: line_to_bet(row['prob']), axis=1)
+  #lineup_w_pitching_batting_team_df['moneyline_value_line_v'] = lineup_w_pitching_batting_team_df.apply(lambda row: line_to_bet(1 - row['prob']), axis=1)
 
   # calculate our edge
   lineup_w_pitching_batting_team_df['edge_h'] = lineup_w_pitching_batting_team_df.apply(lambda row: calculate_edge(row['prob'], row['moneyline_h']), axis=1)
@@ -246,10 +252,9 @@ def lambda_handler(event, context):
   #print(f'\nRUNS SCORED FEATS:\n{df_runs.loc[:, RUNS_SCORED_FEAT_SET]}')
   
   print(f'\nSaving Predictions DataFrames to CSV')
-  lineup_w_pitching_batting_team_df.loc[:, ['date_dblhead', 'game_time', 'team_h_full', 'team_v_full', 'prob', 'moneyline_h', 'moneyline_value_line_h', 'edge_h', 'moneyline_v', 'moneyline_value_line_v', 'edge_v']].to_csv(f'data/results/{RUN_DATE}_home_victory_preds.csv', index=False)
+  lineup_w_pitching_batting_team_df.loc[:, ['date_dblhead', 'game_time', 'team_h_full', 'team_v_full', 'prob', 'moneyline_h', 'edge_h', 'moneyline_v', 'edge_v']].to_csv(f'data/results/{RUN_DATE}_home_victory_preds.csv', index=False)
   df_runs.loc[:, ['date_dblhead', 'game_time', 'team_h_full', 'team_v_full', 'over_under_line', 'total_runs_predicted']].to_csv(f'data/results/{RUN_DATE}_run_total_preds.csv', index=False)
   
-  print(f'\nPosting picks to X')
   #post_to_X()
   return {}
 
