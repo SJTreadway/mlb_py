@@ -37,9 +37,6 @@ CONSUMER_KEY = os.environ['X_CONSUMER_KEY']
 CONSUMER_SECRET = os.environ['X_CONSUMER_SECRET']
 BEARER_TOKEN = os.environ['X_BEARER_TOKEN']
 
-# GitHub Token
-GH_TOKEN = os.environ['GH_TOKEN']
-
 # Flags for Settings
 TOMORROW_GAMES = int(os.environ['TOMORROW_GAMES'])
 
