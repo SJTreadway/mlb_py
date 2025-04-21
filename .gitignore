@@ -1,3 +1,4 @@
 .env
 /models
 *.csv
+**/__pycache__
