@@ -90,6 +90,9 @@ def get_bref_current_season_data(pid):
     for d in range(0, len(td_cells)):
       if td_cells[d]["data-stat"] == "date":
         dat = td_cells[d].get_text(strip=True).split(' ')
+        if dat[0] == '':
+          print(f'Empty Date Value for Batter {pid} ({bref_pid}) date: {dat}')
+          continue
         date_list.append(pd.to_datetime(dat[0]).strftime('%-m-%-d-%Y'))
         digit = '' if len(dat) == 1 else re.sub(r'[()]', '', dat[1])
         dblhead_num_list.append(str(digit) if digit else '')
@@ -116,6 +119,8 @@ def convert_header_values(main_data_matrix):
   converted_matrix = []
   team_league_map = get_team_league_map()
   for row in main_data_matrix:
+    if (row == {}):
+      continue
     opp = row.get('opp_name_abbr', '')
     converted_matrix.append({
       'at_vs': 'AT' if row.get('game_location', '') == '@' else 'VS',
