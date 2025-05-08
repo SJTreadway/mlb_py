@@ -4,6 +4,7 @@ import time
 import pandas as pd
 import numpy as np
 import requests
+import cfscrape
 
 from tqdm import tqdm
 
@@ -69,11 +70,18 @@ def get_bref_current_season_data(pid):
   if rev_lkp is not None:
     bref_pid = rev_lkp.loc[0]['key_bbref']
   url = BREF_URL_PREFIX+'?id='+bref_pid+'&t=b&year='+str(YEAR)
-  page = requests.get(url)
+  s = requests.session()
+  s.headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
+    'Referer': url,
+  }
+
+  scraper_one = cfscrape.create_scraper(sess=s)
+  page = scraper_one.get(url)
   soup = BeautifulSoup(page.content, 'html.parser')
   target_table = soup.find("table", id="players_standard_batting")
   if target_table is None:
-    #print(f'Skipping batter {pid} ({bref_pid}) No table found. ')
+    print(f'Skipping batter {pid} ({bref_pid}) No table found. ')
     return pd.DataFrame()
   target_element = target_table.find('tbody')
   working_part = list(target_element.find_all('tr'))
