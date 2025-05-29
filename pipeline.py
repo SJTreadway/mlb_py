@@ -22,6 +22,8 @@ from api.odds import get_over_odds, get_under_odds, get_total_line, get_money_li
 from api.pitchers import process_pitching_data
 from api.batters import process_batting_data
 
+from cleanup import cleanup_directory
+
 import tweepy
 
 from dotenv import load_dotenv
@@ -188,6 +190,9 @@ def lambda_handler(event, context):
   print('--- TIME TO COOK 👨🏻‍🍳 ⚾️ 🚀 💰 ---')
 
   RUN_DATE = date.today() if TOMORROW_GAMES == 0 else date.today() + timedelta(days=1)
+  
+  print(f'\nEmptying Data Directories')
+  cleanup_directory()
 
   print(f'\nGetting Starting Lineups for {RUN_DATE}')
   fname = f'data/daily/{RUN_DATE}_lineup_data.csv'

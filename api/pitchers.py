@@ -125,6 +125,9 @@ def convert_header_values(main_data_matrix):
   team_league_map = get_team_league_map()
   for row in main_data_matrix:
     opp = row.get('opp_ID', '')
+    if opp == '':
+      print('Empty Opponent')
+      continue
     pgs = row.get('player_game_span', '').split('-')
     converted_matrix.append({
       'at_vs': 'AT' if row.get('team_homeORaway', '') == '@' else 'VS',
