@@ -191,8 +191,9 @@ def lambda_handler(event, context):
 
   RUN_DATE = date.today() if TOMORROW_GAMES == 0 else date.today() + timedelta(days=1)
   
-  print(f'\nEmptying Data Directories')
-  cleanup_directory()
+  if REFRESH_DATA == 1:
+    print(f'\nEmptying Data Directories')
+    cleanup_directory()
 
   print(f'\nGetting Starting Lineups for {RUN_DATE}')
   fname = f'data/daily/{RUN_DATE}_lineup_data.csv'

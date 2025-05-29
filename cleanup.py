@@ -4,7 +4,6 @@ DIRS = ['data/bat', 'data/daily', 'data/pitch', 'data/results']
 
 def cleanup_directory():
   for directory in DIRS:
-    print(f'Cleaning {directory} directory...')
     if os.path.exists(directory):
       for filename in os.listdir(directory):
         file_path = os.path.join(directory, filename)
@@ -13,6 +12,7 @@ def cleanup_directory():
             os.unlink(file_path)
         except Exception as e:
           print(f'Failed to delete {file_path}. Reason: {e}')
+    print(f'✅ {directory} completed 🧹')
 
 if __name__ == "__main__":
   cleanup_directory()
