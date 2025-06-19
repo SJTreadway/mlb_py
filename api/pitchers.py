@@ -76,29 +76,27 @@ def get_bref_current_season_data(pid):
   scraper_one = cfscrape.create_scraper(sess=s)
   page = scraper_one.get(url)
   soup = BeautifulSoup(page.content, 'html.parser')
-  target_table = soup.find("table", id="pitching_gamelogs")
+  target_table = soup.find("table", id="players_standard_pitching")
   if target_table is None:
-    #print(f'Skipping pitcher {pid} ({bref_pid}) No table found. ')
+    print(f'Skipping pitcher {pid} ({bref_pid}) No table found. ')
     return pd.DataFrame()
   target_element = target_table.find('tbody')
   working_part = list(target_element.find_all('tr'))
   mod_header = ['at_vs','Opponent','League', 'GS', 'CG', 'SHO', 'GF', 'SV', 'IP', 'H',
       'BFP', 'HR', 'R', 'ER', 'BB', 'IB', 'SO', 'SH', 'SF', 'WP', 'HBP',
       'BK', 'x2B', 'x3B', 'GDP', 'ROE', 'W', 'L', 'ERA']
-  bref_headers = ['team_homeORaway', 'opp_ID', 'player_game_span', 'CG', 'GF', 'SV', 'IP', 'H',
-      'BF', 'HR', 'R', 'ER', 'BB', 'IBB', 'SO', 'SF', 'HBP',
-      '2B', '3B', 'GDP', 'ROE', 'player_game_result', 'earned_run_avg']
+  bref_headers = ['game_location', 'opp_name_abbr', 'p_player_game_span', 'CG', 'GF', 'SV', 'p_ip', 'p_h',
+      'p_bfp', 'p_hr', 'p_r', 'p_er', 'p_bb', 'p_ibb', 'p_so', 'p_sf', 'p_hbp',
+      'p_doubles', 'p_triples', 'p_gidp', 'p_roe', 'game_result', 'p_earned_run_avg_cume']
   date_list = []
   dblhead_num_list = []
   for k in range(0, len(working_part)):
     td_cells = working_part[k].find_all("td", attrs={"data-stat": True})
     for d in range(0, len(td_cells)):
-      if td_cells[d]["data-stat"] == "date_game":
-        dat = td_cells[d]['csk'].split('.')[0]
-        date_list.append(pd.to_datetime(dat).strftime('%-m-%-d-%Y'))
-        dbl_head_num = ''.join(
-            str(c) for c in td_cells[d].contents if not getattr(c, 'name', None) == 'a'
-        ).strip()
+      if td_cells[d]["data-stat"] == "date":
+        dat = td_cells[d].get_text(strip=True).split(' ')
+        date_list.append(pd.to_datetime(dat[0]).strftime('%-m-%-d-%Y'))
+        dbl_head_num = dat[1].strip() if len(dat) > 1 else ''
         digit = re.sub(r'[()]', '', dbl_head_num)
         dblhead_num_list.append(str(digit) if digit else '')
 
@@ -124,41 +122,41 @@ def convert_header_values(main_data_matrix):
   converted_matrix = []
   team_league_map = get_team_league_map()
   for row in main_data_matrix:
-    opp = row.get('opp_ID', '')
+    opp = row.get('opp_name_abbr', '')
     if opp == '':
       print('Empty Opponent')
       continue
-    pgs = row.get('player_game_span', '').split('-')
+    pgs = row.get('p_player_game_span', '').split('-')
     converted_matrix.append({
-      'at_vs': 'AT' if row.get('team_homeORaway', '') == '@' else 'VS',
+      'at_vs': 'AT' if row.get('game_location', '') == '@' else 'VS',
       'Opponent': opp,
       'League': team_league_map[opp],
       'GS': 1 if pgs[0] == 'GS' else 0,
       'CG': 1 if pgs[0] == 'CG' else 0,
-      'SHO': 1 if pgs[0] == 'CG' and int(row.get('R', 0)) == 0 else 0,
+      'SHO': 1 if pgs[0] == 'CG' and int(row.get('p_r', 0)) == 0 else 0,
       'GF': 1 if len(pgs) > 1 and pgs[1] == 'GF' else 0,
       'SV': 0,  # Placeholder; can be derived if needed
-      'IP': safe_float(row.get('IP', 0)),
-      'H': safe_float(row.get('H', 0)),
-      'BFP': safe_int(row.get('BF', 0)) if 'BF' in row else safe_int(row.get('batters_faced', 0)),
-      'HR': safe_int(row.get('HR', 0)),
-      'R': safe_int(row.get('R', 0)),
-      'ER': safe_int(row.get('ER', 0)),
-      'BB': safe_int(row.get('BB', 0)),
-      'IB': safe_int(row.get('IBB', 0)),
-      'SO': safe_int(row.get('SO', 0)),
-      'SH': safe_int(row.get('SF', 0)),  # Reuse SF for now
-      'SF': safe_int(row.get('SF', 0)),
+      'IP': safe_float(row.get('p_ip', 0)),
+      'H': safe_float(row.get('p_h', 0)),
+      'BFP': safe_int(row.get('p_bf', 0)) if 'BF' in row else safe_int(row.get('batters_faced', 0)),
+      'HR': safe_int(row.get('p_hr', 0)),
+      'R': safe_int(row.get('p_r', 0)),
+      'ER': safe_int(row.get('p_er', 0)),
+      'BB': safe_int(row.get('p_bb', 0)),
+      'IB': safe_int(row.get('p_ibb', 0)),
+      'SO': safe_int(row.get('p_so', 0)),
+      'SH': safe_int(row.get('p_sf', 0)),  # Reuse SF for now
+      'SF': safe_int(row.get('p_sf', 0)),
       'WP': 0,
-      'HBP': safe_int(row.get('HBP', 0)),
+      'HBP': safe_int(row.get('p_hbp', 0)),
       'BK': 0,
-      'x2B': safe_int(row.get('2B', 0)),
-      'x3B': safe_int(row.get('3B', 0)),
-      'GDP': safe_int(row.get('GIDP', 0)),
-      'ROE': safe_int(row.get('ROE', 0)),
-      'W': 1 if row.get('player_game_result', '').split('(')[0] == 'W' else 0,
-      'L': 1 if row.get('player_game_result', '').split('(')[0] == 'L' else 0,
-      'ERA': safe_float(row.get('earned_run_avg', 0.0))
+      'x2B': safe_int(row.get('p_doubles', 0)),
+      'x3B': safe_int(row.get('p_triples', 0)),
+      'GDP': safe_int(row.get('p_gidp', 0)),
+      'ROE': safe_int(row.get('p_roe', 0)),
+      'W': 1 if row.get('game_result', '').split('(')[0] == 'W' else 0,
+      'L': 1 if row.get('game_result', '').split('(')[0] == 'L' else 0,
+      'ERA': safe_float(row.get('p_earned_run_avg_cume', 0.0))
     })
   return converted_matrix
  
