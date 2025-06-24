@@ -95,8 +95,9 @@ def get_bref_current_season_data(pid):
     for d in range(0, len(td_cells)):
       if td_cells[d]["data-stat"] == "date":
         dat = td_cells[d].get_text(strip=True).split(' ')
-        date_list.append(pd.to_datetime(dat[0]).strftime('%-m-%-d-%Y'))
-        dbl_head_num = dat[1].strip() if len(dat) > 1 else ''
+        if dat and len(dat) > 0:
+          date_list.append(pd.to_datetime(dat[0]).strftime('%-m-%-d-%Y'))
+          dbl_head_num = dat[1].strip() if len(dat) > 1 else ''
         digit = re.sub(r'[()]', '', dbl_head_num)
         dblhead_num_list.append(str(digit) if digit else '')
 
