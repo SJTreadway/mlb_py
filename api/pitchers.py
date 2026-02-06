@@ -379,8 +379,9 @@ def get_rolling_pitching_feats(df, start_pitchers_all):
           value = curr_df[col].iloc[-1]
           col_add_dict['Strt_'+col+'_h'][i] = value
   
-  for col in cols_to_add:
-    df[col] = col_add_dict[col]
+  # Use pd.concat to avoid DataFrame fragmentation warning
+  df_new_cols = pd.DataFrame(col_add_dict, index=df.index)
+  df = pd.concat([df, df_new_cols], axis=1)
   
   return df
   
@@ -536,7 +537,8 @@ def get_bullpen_data(df):
         value = curr_df.loc[date_dblhead,col]
         col_add_dict[col+'_v'][i] = value
   
-  for col in cols_to_add:
-    df[col] = col_add_dict[col]
+  # Use pd.concat to avoid DataFrame fragmentation warning
+  df_new_cols = pd.DataFrame(col_add_dict, index=df.index)
+  df = pd.concat([df, df_new_cols], axis=1)
 
   return df
