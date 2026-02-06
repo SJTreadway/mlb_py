@@ -3,23 +3,22 @@ import os
 import time
 import pandas as pd
 import numpy as np
-import requests
-import cfscrape
 
 from tqdm import tqdm
 
 from helpers import roll_column, get_team_league_map, safe_float, safe_int
 
-from pybaseball import playerid_reverse_lookup
+from pybaseball import playerid_reverse_lookup, statcast_batter, playerid_lookup
 
 from bs4 import BeautifulSoup
 
-URL_PREFIX = 'https://www.retrosheet.org/boxesetc/'
-BREF_URL_PREFIX = 'https://www.baseball-reference.com/players/gl.fcgi'
 WINDOWS = [30,75,162,350]
 YEAR = int(os.environ['YEAR'])
 
 def process_batting_data(df):
+  """
+  Process batting data using pybaseball API instead of web scraping.
+  """
   # step 1: get unique batter ids from our dataframe
   batter_ids = np.array([])
   for num in range(1,10):
@@ -28,7 +27,7 @@ def process_batting_data(df):
       batter_ids = np.concatenate((batter_ids, pd.unique(df[colname])))
   batter_ids = pd.unique(batter_ids)
   
-  # step 2: store batter data for each batter id to csv
+  # step 2: store batter data for each batter id to csv using API
   load_batting_data(batter_ids)
   
   # step 3: add in all batting feature
@@ -36,199 +35,187 @@ def process_batting_data(df):
 
   return get_lineup_averages(bat_df)
 
+def retro_to_mlbam(retro_id):
+  """Convert retro ID to MLBAM ID for API queries."""
+  if not retro_id or pd.isna(retro_id):
+    return None
+  try:
+    rev_lkp = playerid_reverse_lookup([retro_id], key_type='retro')
+    if rev_lkp is not None and not rev_lkp.empty:
+      return int(rev_lkp.iloc[0]['key_mlbam'])
+  except Exception as e:
+    print(f'Error looking up retro ID {retro_id}: {e}')
+  return None
+
 def load_batting_data(batter_ids):
-  for b_id in tqdm(batter_ids):
-    if b_id:
+  """
+  Load batting data using pybaseball API (statcast_batter).
+  Much faster than scraping Retrosheet and Baseball-Reference.
+  """
+  for b_id in tqdm(batter_ids, desc='Loading batter data via API'):
+    if b_id and not pd.isna(b_id):
       fname_out = 'data/bat/batting_data_'+b_id+'.csv'
-      df_season = get_bref_current_season_data(b_id)
-      if not os.path.exists(fname_out):
-        df_temp = get_full_batting_data(b_id)
-        df_temp = pd.concat((df_temp, df_season))
-      else:
-        # load existing data and concatenate
-        df_existing = pd.read_csv(fname_out)
-        df_temp = pd.concat((df_existing, df_season))
-        # remove duplicates
-        df_temp = df_temp.drop_duplicates(subset=['date', 'dblhead_num'], keep='first')
-      # save the updated data
-      df_temp.to_csv(fname_out, index=False)
-
-# Get all the data for a particular batter
-def get_full_batting_data(batter_id):
-  if not batter_id:
-    return pd.DataFrame()
-  link_list = get_daily_season_links(batter_id)
-  df_batting = pd.DataFrame()
-  for url in link_list:
-    df_batting = pd.concat((df_batting, get_season_batting_data(url)))
-  return df_batting
-        
-def get_bref_current_season_data(pid):
-  bref_pid = None
-  rev_lkp = playerid_reverse_lookup([pid], key_type='retro')
-  if rev_lkp is not None:
-    bref_pid = rev_lkp.loc[0]['key_bbref']
-  url = BREF_URL_PREFIX+'?id='+bref_pid+'&t=b&year='+str(YEAR)
-  s = requests.session()
-  s.headers = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
-    'Referer': url,
-  }
-
-  scraper_one = cfscrape.create_scraper(sess=s, delay=3.1)
-  page = scraper_one.get(url)
-  soup = BeautifulSoup(page.content, 'html.parser')
-  target_table = soup.find("table", id="players_standard_batting")
-  if target_table is None:
-    print(f'Skipping batter {pid} ({bref_pid}) No table found. ')
-    return pd.DataFrame()
-  target_element = target_table.find('tbody')
-  working_part = list(target_element.find_all('tr'))
-  mod_header = ['at_vs','Opponent','League', 'GS', 'AB', 'R', 'H', 'x2B', 'x3B', 'HR',
-      'RBI', 'BB', 'IBB', 'SO', 'HBP', 'SH', 'SF', 'XI', 'ROE', 'GDP',
-      'SB', 'CS', 'AVG', 'OBP', 'SLG', 'BP', 'Pos']
-  bref_headers = ['game_location', 'opp_name_abbr', 'b_player_game_span', 'b_ab', 'b_r', 'b_h', 'b_doubles', 'b_triples', 'b_hr',
-      'b_rbi', 'b_bb', 'b_ibb', 'b_so', 'b_hbp', 'b_sh', 'b_sf', 'b_gidp',
-      'b_sb', 'b_cs', 'b_batting_avg_cume', 'b_onbase_perc_cume', 'b_slugging_perc_cume', 'b_lineup_position', 'pos_game']
-  date_list = []
-  dblhead_num_list = []
-  for k in range(0, len(working_part)):
-    td_cells = working_part[k].find_all("td", attrs={"data-stat": True})
-    for d in range(0, len(td_cells)):
-      if td_cells[d]["data-stat"] == "date":
-        dat = td_cells[d].get_text(strip=True).split(' ')
-        if dat[0] == '':
-          print(f'Empty Date Value for Batter {pid} ({bref_pid}) date: {dat}')
+      
+      # Convert retro ID to MLBAM ID for API
+      mlbam_id = retro_to_mlbam(b_id)
+      if not mlbam_id:
+        print(f'Skipping batter {b_id} - could not convert to MLBAM ID')
+        continue
+      
+      # Fetch current season data via API
+      start_date = f'{YEAR}-03-01'
+      end_date = f'{YEAR}-11-30'
+      
+      try:
+        df_season = statcast_batter(start_date, end_date, mlbam_id)
+        if df_season.empty:
+          print(f'No data found for batter {b_id} (MLBAM: {mlbam_id})')
           continue
-        date_list.append(pd.to_datetime(dat[0]).strftime('%-m-%-d-%Y'))
-        digit = '' if len(dat) == 1 else re.sub(r'[()]', '', dat[1])
-        dblhead_num_list.append(str(digit) if digit else '')
+          
+        # Transform statcast data to match expected format
+        df_season = transform_statcast_batter(df_season)
+        
+        if not os.path.exists(fname_out):
+          # Get historical data using API (start from 2008 when Statcast began)
+          df_historical = get_historical_batting_data(mlbam_id)
+          df_temp = pd.concat((df_historical, df_season))
+        else:
+          # Load existing data and concatenate
+          df_existing = pd.read_csv(fname_out)
+          df_temp = pd.concat((df_existing, df_season))
+          # Remove duplicates
+          df_temp = df_temp.drop_duplicates(subset=['date', 'dblhead_num'], keep='first')
+        
+        # Save the updated data
+        df_temp.to_csv(fname_out, index=False)
+        
+        # Small delay to be nice to the API
+        time.sleep(0.1)
+        
+      except Exception as e:
+        print(f'Error fetching data for batter {b_id}: {e}')
+        continue
 
-  main_data_matrix = []
-  matrix_to_convert = []
-  for k in range(0, len(working_part)):
-    td_cells = working_part[k].find_all("td", attrs={"data-stat": True})
-    if (len(td_cells) > 0):
-      data = {
-        td["data-stat"]: td.get_text(strip=True)
-        for td in td_cells
-        if td["data-stat"] in bref_headers
-      }
-      matrix_to_convert.append(data)
+def transform_statcast_batter(df):
+  """
+  Transform Statcast batter data to match the expected format from Retrosheet.
+  """
+  if df.empty:
+    return pd.DataFrame()
+  
+  # Group by game to get game-level stats
+  df['game_date'] = pd.to_datetime(df['game_date'])
+  df['date'] = df['game_date'].dt.strftime('%-m-%-d-%Y')
+  
+  # Initialize lists for aggregated data
+  games = []
+  
+  # Group by game_date and game_pk to get game-level stats
+  for (game_date, game_pk), group in df.groupby(['game_date', 'game_pk']):
+    # Determine if home or away
+    at_vs = 'VS' if group['home_team'].iloc[0] == group['stand'].iloc[0] else 'AT'
+    opponent = group['away_team'].iloc[0] if at_vs == 'VS' else group['home_team'].iloc[0]
     
-  main_data_matrix = convert_header_values(matrix_to_convert)
-  batter_df = pd.DataFrame(main_data_matrix, columns = mod_header)
-  batter_df['date'] = date_list
-  batter_df['dblhead_num'] = dblhead_num_list
-  return batter_df
-
-def convert_header_values(main_data_matrix):
-  converted_matrix = []
-  team_league_map = get_team_league_map()
-  for row in main_data_matrix:
-    if (row == {}):
-      continue
-    opp = row.get('opp_name_abbr', '')
-    converted_matrix.append({
-      'at_vs': 'AT' if row.get('game_location', '') == '@' else 'VS',
-      'Opponent': opp,
-      'League': team_league_map[opp],
-      'GS': 1 if row.get('b_player_game_span', '').split('-')[0] == 'GS' else 0,
-      'AB': safe_int(row.get('b_ab', 0)),
-      'R': safe_int(row.get('b_r', 0)),
-      'H': safe_int(row.get('b_h', 0)),
-      'x2B': safe_int(row.get('b_doubles', 0)),
-      'x3B': safe_int(row.get('b_triples', 0)),
-      'HR': safe_int(row.get('b_hr', 0)),
-      'RBI': safe_int(row.get('b_rbi', 0)),
-      'BB': safe_int(row.get('b_bb', 0)),
-      'IBB': safe_int(row.get('b_ibb', 0)),
-      'SO': safe_int(row.get('b_so', 0)),
-      'HBP': safe_int(row.get('b_hbp', 0)),
-      'SH': safe_int(row.get('b_sh', 0)),
-      'SF': safe_int(row.get('b_sh', 0)),
+    # Calculate stats
+    ab = len(group[group['description'].str.contains('hit_into_play|swinging_strike|called_strike|foul', case=False, na=False)])
+    h = len(group[group['events'].isin(['single', 'double', 'triple', 'home_run'])])
+    x2b = len(group[group['events'] == 'double'])
+    x3b = len(group[group['events'] == 'triple'])
+    hr = len(group[group['events'] == 'home_run'])
+    bb = len(group[group['events'].isin(['walk', 'intent_walk'])])
+    so = len(group[group['events'] == 'strikeout'])
+    hbp = len(group[group['events'] == 'hit_by_pitch'])
+    sb = len(group[group['events'] == 'stolen_base'])
+    cs = len(group[group['events'] == 'caught_stealing'])
+    # RBI not directly available in statcast - estimate from runs scored
+    rbi = 0  # Cannot reliably calculate RBI from pitch-level data
+    
+    games.append({
+      'date': game_date.strftime('%-m-%-d-%Y'),
+      'dblhead_num': '',
+      'at_vs': at_vs,
+      'Opponent': opponent,
+      'League': get_team_league_map().get(opponent, ''),
+      'GS': 1 if len(group) > 0 else 0,
+      'AB': ab,
+      'R': 0,  # Runs scored by batter not directly available in pitch-level statcast data
+      'H': h,
+      'x2B': x2b,
+      'x3B': x3b,
+      'HR': hr,
+      'RBI': rbi,
+      'BB': bb,
+      'IBB': len(group[group['events'] == 'intent_walk']),
+      'SO': so,
+      'HBP': hbp,
+      'SH': len(group[group['events'] == 'sac_bunt']),
+      'SF': len(group[group['events'] == 'sac_fly']),
       'XI': 0,
       'ROE': 0,
-      'GDP': safe_int(row.get('b_gidp', 0)),
-      'SB': safe_int(row.get('b_sb', 0)),
-      'CS': safe_int(row.get('b_cs', 0)),
-      'AVG': safe_float(row.get('b_batting_avg_cume', 0)),
-      'OBP': safe_float(row.get('b_onbase_perc_cume', 0)),
-      'SLG': safe_float(row.get('b_slugging_perc_cume', 0)),
-      'BP': safe_int(row.get('b_lineup_position', 0)),
-      'Pos': ','.join(row.get('pos_game').lower().split())
+      'GDP': len(group[group['events'] == 'grounded_into_double_play']),
+      'SB': sb,
+      'CS': cs,
+      'AVG': 0.0,  # Will be calculated cumulatively
+      'OBP': 0.0,
+      'SLG': 0.0,
+      'BP': group['batting_order'].iloc[0] if 'batting_order' in group.columns else 0,
+      'Pos': ','.join(group['position'].unique()) if 'position' in group.columns else ''
     })
-  return converted_matrix
-
-def get_daily_season_links(batter_id):
-  letter = batter_id.upper()[0]
-  url = URL_PREFIX+letter+'/P'+batter_id+'.htm'
-  page = requests.get(url)
-  soup = BeautifulSoup(page.content, 'html.parser')
-  html=list(soup.children)
-  body = list(html[2].children)[5]
-  pre_texts = [x for x in body.find_all('pre')]
-  secnum = np.where([x.get_text().strip().startswith('Batting Record') for x in pre_texts])[0][0]
-  a_pre_texts = pre_texts[secnum].find_all('a')
-  daily_season_links = [URL_PREFIX+x.attrs['href'][3:] for x in a_pre_texts if x.get_text()=='Daily']
-  return daily_season_links
   
-def get_season_batting_data(url):
-  page = requests.get(url)
-  soup = BeautifulSoup(page.content, 'html.parser')
-  html=list(soup.children)[-1]
-  body = list(html.children)[-1]
-  sec_next = list(body.children)
-  secnum = np.where(["Opponent" in str(x) for x in sec_next])[0][0]
-  key_section = sec_next[secnum]
-  working_part = list(key_section.children)
-  p_header = working_part[0].strip().split()
-  mod_header= ['at_vs','Opponent','League', 'GS', 'AB', 'R', 'H', 'x2B', 'x3B', 'HR',
-      'RBI', 'BB', 'IBB', 'SO', 'HBP', 'SH', 'SF', 'XI', 'ROE', 'GDP',
-      'SB', 'CS', 'AVG', 'OBP', 'SLG', 'BP', 'Pos']
+  result_df = pd.DataFrame(games)
+  
+  # Calculate cumulative stats
+  if not result_df.empty:
+    result_df = calculate_cumulative_stats(result_df)
+  
+  return result_df
 
-  date_list = []
-  day_href_list = []
-  for k in range(1,len(working_part),4):
-    date_list.append(working_part[k].get_text().strip())
-    day_href_list.append(working_part[k].attrs['href'])
+def calculate_cumulative_stats(df):
+  """Calculate cumulative batting statistics (AVG, OBP, SLG)."""
+  df = df.sort_values('date')
+  df['cum_AB'] = df['AB'].cumsum()
+  df['cum_H'] = df['H'].cumsum()
+  df['cum_BB'] = df['BB'].cumsum()
+  df['cum_HBP'] = df['HBP'].cumsum()
+  df['cum_SF'] = df['SF'].cumsum()
+  df['cum_xB'] = (df['x2B'] + 2*df['x3B'] + 3*df['HR']).cumsum()
+  
+  df['AVG'] = df['cum_H'] / df['cum_AB'].replace(0, np.nan)
+  df['OBP'] = (df['cum_H'] + df['cum_BB'] + df['cum_HBP']) / (df['cum_AB'] + df['cum_BB'] + df['cum_HBP'] + df['cum_SF']).replace(0, np.nan)
+  df['SLG'] = (df['cum_H'] + df['cum_xB']) / df['cum_AB'].replace(0, np.nan)
+  
+  # Drop cumulative columns
+  df = df.drop(['cum_AB', 'cum_H', 'cum_BB', 'cum_HBP', 'cum_SF', 'cum_xB'], axis=1)
+  
+  return df
 
-  dblhead_num_list = []
-  for k in range(2,len(working_part),4):
-    dblhead_num_list.append(working_part[k].strip())
-
-  game_href_list = []
-  for k in range(3,len(working_part),4):
-    game_href_list.append(working_part[k].attrs['href'])
-
-  main_data_matrix = []
-  for k in range(4,len(working_part),4):
-    main_data_row = (working_part[k].strip().split())[:27]
-    main_data_matrix.append(main_data_row)
-  row_sizes = [len(x) for x in main_data_matrix]
-  max_row_size = max(row_sizes)
-  min_row_size = min(row_sizes)
-  if (min_row_size == max_row_size) and (max_row_size==27):
-    # Everything has all 27 columns
-    batter_df = pd.DataFrame(main_data_matrix, columns = mod_header)
-  elif (min_row_size == max_row_size) and (max_row_size==26):
-    # Everything has 26 columns, will guess position is missing
-    batter_df = pd.DataFrame(main_data_matrix, columns = mod_header[:26])
-    batter_df['Pos'] = ''
-  elif (min_row_size == 26) and (max_row_size==27):
-    # Guessing position is missing for some rows but not others
-    main_data_matrix = [x if len(x)==27 else x+[''] for x in main_data_matrix]
-    batter_df = pd.DataFrame(main_data_matrix, columns = mod_header)
-  else:
-    print('finding rows with less than 26 or more than 27 entries - Returning None')
-    return(None)
-  batter_df['date'] = date_list
-  batter_df['dblhead_num'] = dblhead_num_list
-  return batter_df
+def get_historical_batting_data(mlbam_id):
+  """
+  Get historical batting data from 2008 onwards (when Statcast began).
+  """
+  all_data = []
+  
+  # Fetch data from 2008 to current year - 1
+  for year in range(max(2008, YEAR - 5), YEAR):
+    try:
+      start_date = f'{year}-03-01'
+      end_date = f'{year}-11-30'
+      df_year = statcast_batter(start_date, end_date, mlbam_id)
+      if not df_year.empty:
+        all_data.append(transform_statcast_batter(df_year))
+      time.sleep(0.1)  # Be nice to the API
+    except Exception as e:
+      print(f'Error fetching data for year {year}: {e}')
+      continue
+  
+  if all_data:
+    return pd.concat(all_data, ignore_index=True)
+  return pd.DataFrame()
 
 def process_batter_df(b_id):
   dict_def = get_position_defaults()
   fname = f'data/bat/batting_data_{b_id}.csv'
+  pos = None  # Initialize to avoid NameError in except block
   try:
     batter_df = pd.read_csv(fname)
     pos = batter_df.Pos.mode()[0]
@@ -320,12 +307,11 @@ def process_batter_df(b_id):
   return batter_df
 
 def get_batter_ids_from_row(row):
-  b_cols = ['batter1_id_h', 'batter1_id_v', 'batter2_id_h',
-      'batter2_id_v', 'batter3_id_h', 'batter3_id_v',
-      'batter4_id_h', 'batter4_id_v', 'batter5_id_h',
-      'batter5_id_v', 'batter6_id_h', 'batter6_id_v',
-      'batter7_id_h', 'batter7_id_v', 'batter8_id_h',
-      'batter8_id_v', 'batter9_id_h', 'batter9_id_v']
+  b_cols = ['batter1_id_h', 'batter1_id_v', 'batter2_id_h', 'batter2_id_v',
+      'batter3_id_h', 'batter3_id_v', 'batter4_id_h', 'batter4_id_v',
+      'batter5_id_h', 'batter5_id_v', 'batter6_id_h', 'batter6_id_v',
+      'batter7_id_h', 'batter7_id_v', 'batter8_id_h', 'batter8_id_v',
+      'batter9_id_h', 'batter9_id_v']
   return row.loc[b_cols].to_dict()
 
 def get_batting_feats(df, batter_ids):

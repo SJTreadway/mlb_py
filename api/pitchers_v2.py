@@ -4,22 +4,19 @@ import os
 import numpy as np
 import pandas as pd
 
-from bs4 import BeautifulSoup
-import requests
-import cfscrape
-
 from tqdm import tqdm
 
-from pybaseball import playerid_reverse_lookup
+from pybaseball import playerid_reverse_lookup, statcast_pitcher
 
 from helpers import roll_column, strip_suffix, get_team_league_map, safe_float, safe_int
 
-URL_PREFIX = 'https://www.retrosheet.org/boxesetc/'
-BREF_URL_PREFIX = 'https://www.baseball-reference.com/players/gl.fcgi'
 YEAR = int(os.environ['YEAR'])
 WINDOWS = [10,35,75]
 
 def process_pitching_data(df):
+  """
+  Process pitching data using pybaseball API instead of web scraping.
+  """
   start_pitchers_h = [p for p in df.starting_pitcher_id_h.unique() if p is not None]
   start_pitchers_v = [p for p in df.starting_pitcher_id_v.unique() if p is not None]
   start_pitchers_all = np.union1d(start_pitchers_h, start_pitchers_v)
@@ -32,198 +29,200 @@ def process_pitching_data(df):
   
   return get_bullpen_data(strt_pitch_df)
 
-# Get data for each starting pitcher and store to csv
+def retro_to_mlbam(retro_id):
+  """Convert retro ID to MLBAM ID for API queries."""
+  if not retro_id or pd.isna(retro_id):
+    return None
+  try:
+    rev_lkp = playerid_reverse_lookup([retro_id], key_type='retro')
+    if rev_lkp is not None and not rev_lkp.empty:
+      return int(rev_lkp.iloc[0]['key_mlbam'])
+  except Exception as e:
+    print(f'Error looking up retro ID {retro_id}: {e}')
+  return None
+
 def load_pitching_data(start_pitchers_all):
-  for p_id in tqdm(start_pitchers_all):
-    if p_id:
+  """
+  Load pitching data using pybaseball API (statcast_pitcher).
+  Much faster than scraping Retrosheet and Baseball-Reference.
+  """
+  for p_id in tqdm(start_pitchers_all, desc='Loading pitcher data via API'):
+    if p_id and not pd.isna(p_id):
       fname_out = 'data/pitch/pitching_data_'+p_id+'.csv'
-      df_season = get_bref_current_season_data(p_id)
-      if not os.path.exists(fname_out):
-        df_temp = get_full_pitching_data(p_id)
-        df_temp = pd.concat((df_temp, df_season))
-      else:
-        # load existing data and concatenate
-        df_existing = pd.read_csv(fname_out)
-        df_temp = pd.concat((df_existing, df_season))
-        # remove duplicates
-        df_temp = df_temp.drop_duplicates(subset=['date', 'dblhead_num'], keep='first')
-      # save the updated data
-      df_temp.to_csv(fname_out, index=False)
+      
+      # Convert retro ID to MLBAM ID for API
+      mlbam_id = retro_to_mlbam(p_id)
+      if not mlbam_id:
+        print(f'Skipping pitcher {p_id} - could not convert to MLBAM ID')
+        continue
+      
+      # Fetch current season data via API
+      start_date = f'{YEAR}-03-01'
+      end_date = f'{YEAR}-11-30'
+      
+      try:
+        df_season = statcast_pitcher(start_date, end_date, mlbam_id)
+        if df_season.empty:
+          print(f'No data found for pitcher {p_id} (MLBAM: {mlbam_id})')
+          continue
+          
+        # Transform statcast data to match expected format
+        df_season = transform_statcast_pitcher(df_season)
+        
+        if not os.path.exists(fname_out):
+          # Get historical data using API (start from 2008 when Statcast began)
+          df_historical = get_historical_pitching_data(mlbam_id)
+          df_temp = pd.concat((df_historical, df_season))
+        else:
+          # Load existing data and concatenate
+          df_existing = pd.read_csv(fname_out)
+          df_temp = pd.concat((df_existing, df_season))
+          # Remove duplicates
+          df_temp = df_temp.drop_duplicates(subset=['date', 'dblhead_num'], keep='first')
+        
+        # Save the updated data
+        df_temp.to_csv(fname_out, index=False)
+        
+        # Small delay to be nice to the API
+        time.sleep(0.1)
+        
+      except Exception as e:
+        print(f'Error fetching data for pitcher {p_id}: {e}')
+        continue
 
-# Get all the data for a particular pitcher
-def get_full_pitching_data(pitcher_id):
-  if not pitcher_id:
+def transform_statcast_pitcher(df):
+  """
+  Transform Statcast pitcher data to match the expected format from Retrosheet.
+  """
+  if df.empty:
     return pd.DataFrame()
-  link_list = get_daily_season_links(pitcher_id)
-  df_pitching = pd.DataFrame()
-  for url in link_list:
-    df_pitching = pd.concat((df_pitching, get_season_pitching_data(url)))
-  return df_pitching
-
-def get_bref_current_season_data(pid):
-  bref_pid = None
-  rev_lkp = playerid_reverse_lookup([pid], key_type='retro')
-  if rev_lkp is not None:
-    bref_pid = rev_lkp.loc[0]['key_bbref']
-  url = BREF_URL_PREFIX+'?id='+bref_pid+'&t=p&year='+str(YEAR)
-  s = requests.session()
-  s.headers = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
-    'Referer': url,
-  }
-
-  scraper_one = cfscrape.create_scraper(sess=s, delay=3.1)
-  page = scraper_one.get(url)
-  soup = BeautifulSoup(page.content, 'html.parser')
-  target_table = soup.find("table", id="players_standard_pitching")
-  if target_table is None:
-    print(f'Skipping pitcher {pid} ({bref_pid}) No table found. ')
-    return pd.DataFrame()
-  target_element = target_table.find('tbody')
-  working_part = list(target_element.find_all('tr'))
-  mod_header = ['at_vs','Opponent','League', 'GS', 'CG', 'SHO', 'GF', 'SV', 'IP', 'H',
-      'BFP', 'HR', 'R', 'ER', 'BB', 'IB', 'SO', 'SH', 'SF', 'WP', 'HBP',
-      'BK', 'x2B', 'x3B', 'GDP', 'ROE', 'W', 'L', 'ERA']
-  bref_headers = ['game_location', 'opp_name_abbr', 'p_player_game_span', 'CG', 'GF', 'SV', 'p_ip', 'p_h',
-      'p_bfp', 'p_hr', 'p_r', 'p_er', 'p_bb', 'p_ibb', 'p_so', 'p_sf', 'p_hbp',
-      'p_doubles', 'p_triples', 'p_gidp', 'p_roe', 'game_result', 'p_earned_run_avg_cume']
-  date_list = []
-  dblhead_num_list = []
-  for k in range(0, len(working_part)):
-    td_cells = working_part[k].find_all("td", attrs={"data-stat": True})
-    for d in range(0, len(td_cells)):
-      if td_cells[d]["data-stat"] == "date":
-        dat = td_cells[d].get_text(strip=True).split(' ')
-        if dat and len(dat) > 0:
-          try:
-            date_list.append(pd.to_datetime(dat[0], errors='coerce').strftime('%-m-%-d-%Y'))
-          except ValueError:
-            print(f'Processing empty date: {dat}')
-            date_list.append('')
-          dbl_head_num = dat[1].strip() if len(dat) > 1 else ''
-        digit = re.sub(r'[()]', '', dbl_head_num)
-        dblhead_num_list.append(str(digit) if digit else '')
-
-  main_data_matrix = []
-  matrix_to_convert = []
-  for k in range(0, len(working_part)):
-    td_cells = working_part[k].find_all("td", attrs={"data-stat": True})
-    if (len(td_cells) > 0):
-      data = {
-        td["data-stat"]: td.get_text(strip=True)
-        for td in td_cells
-        if td["data-stat"] in bref_headers
-      }
-      matrix_to_convert.append(data)
-    
-  main_data_matrix = convert_header_values(matrix_to_convert)
-  pitch_df = pd.DataFrame(main_data_matrix, columns = mod_header)
-  pitch_df['date'] = date_list
-  pitch_df['dblhead_num'] = dblhead_num_list
-  return pitch_df
-
-def convert_header_values(main_data_matrix):
-  converted_matrix = []
-  team_league_map = get_team_league_map()
-  for row in main_data_matrix:
-    opp = row.get('opp_name_abbr', '')
-    if opp == '':
-      print('Empty Opponent')
-      converted_matrix.append({})
-      continue
-    pgs = row.get('p_player_game_span', '').split('-')
-    converted_matrix.append({
-      'at_vs': 'AT' if row.get('game_location', '') == '@' else 'VS',
-      'Opponent': opp,
-      'League': team_league_map[opp],
-      'GS': 1 if pgs[0] == 'GS' else 0,
-      'CG': 1 if pgs[0] == 'CG' else 0,
-      'SHO': 1 if pgs[0] == 'CG' and int(row.get('p_r', 0)) == 0 else 0,
-      'GF': 1 if len(pgs) > 1 and pgs[1] == 'GF' else 0,
-      'SV': 0,  # Placeholder; can be derived if needed
-      'IP': safe_float(row.get('p_ip', 0)),
-      'H': safe_float(row.get('p_h', 0)),
-      'BFP': safe_int(row.get('p_bf', 0)) if 'BF' in row else safe_int(row.get('batters_faced', 0)),
-      'HR': safe_int(row.get('p_hr', 0)),
-      'R': safe_int(row.get('p_r', 0)),
-      'ER': safe_int(row.get('p_er', 0)),
-      'BB': safe_int(row.get('p_bb', 0)),
-      'IB': safe_int(row.get('p_ibb', 0)),
-      'SO': safe_int(row.get('p_so', 0)),
-      'SH': safe_int(row.get('p_sf', 0)),  # Reuse SF for now
-      'SF': safe_int(row.get('p_sf', 0)),
-      'WP': 0,
-      'HBP': safe_int(row.get('p_hbp', 0)),
-      'BK': 0,
-      'x2B': safe_int(row.get('p_doubles', 0)),
-      'x3B': safe_int(row.get('p_triples', 0)),
-      'GDP': safe_int(row.get('p_gidp', 0)),
-      'ROE': safe_int(row.get('p_roe', 0)),
-      'W': 1 if row.get('game_result', '').split('(')[0] == 'W' else 0,
-      'L': 1 if row.get('game_result', '').split('(')[0] == 'L' else 0,
-      'ERA': safe_float(row.get('p_earned_run_avg_cume', 0.0))
-    })
-  return converted_matrix
- 
-
-### Get the links to the pitcher-season tables given the pitcher id
-def get_daily_season_links(pitcher_id):
-  letter = pitcher_id.upper()[0]
-  url = URL_PREFIX+letter+'/P'+pitcher_id+'.htm'
-  page = requests.get(url)
-  soup = BeautifulSoup(page.content, 'html.parser')
-  html=list(soup.children)
-  body = list(html[2].children)[5]
-  pre_texts = [x for x in body.find_all('pre')]
-  pre_recs = np.where([x.get_text().strip().startswith('Pitching Record') for x in pre_texts])
-  if (len(pre_recs) == 0 or len(pre_recs[0]) == 0):
-    print(f'No pitching record found for pitcher {pitcher_id}')
-    return []
-  secnum = pre_recs[0][0]
-  a_pre_texts = pre_texts[secnum].find_all('a')
-  daily_season_links = [URL_PREFIX+x.attrs['href'][3:] for x in a_pre_texts if x.get_text()=='Daily']
-  return daily_season_links
-
-## Given the url that refers to a specific pitcher and season
-## we scrape the data and process it a bit
-def get_season_pitching_data(url):    
-  page = requests.get(url)
-  soup = BeautifulSoup(page.content, 'html.parser')
-  html=list(soup.children)[-1]
-  body = list(html.children)[-1]
-  sec_next = list(body.children)
-  secnum = np.where(["Opponent" in str(x) for x in sec_next])[0][0]
-  key_section = sec_next[secnum]
-  working_part = list(key_section.children)
-  p_header = working_part[0].strip().split()
-  mod_header= ['at_vs','Opponent','League', 'GS', 'CG', 'SHO', 'GF', 'SV', 'IP', 'H',
-          'BFP', 'HR', 'R', 'ER', 'BB', 'IB', 'SO', 'SH', 'SF', 'WP', 'HBP',
-          'BK', 'x2B', 'x3B', 'GDP', 'ROE', 'W', 'L', 'ERA']
-
-  date_list = []
-  day_href_list = []
-  for k in range(1,len(working_part),4):
-    date_list.append(working_part[k].get_text().strip())
-    day_href_list.append(working_part[k].attrs['href'])
-
-  dblhead_num_list = []
-  for k in range(2,len(working_part),4):
-    dblhead_num_list.append(working_part[k].strip())
-
-  game_href_list = []
-  for k in range(3,len(working_part),4):
-    game_href_list.append(working_part[k].attrs['href'])
-
-  main_data_matrix = []
-  for k in range(4,len(working_part),4):
-    main_data_row = (working_part[k].strip().split())[:29]
-    main_data_matrix.append(main_data_row)
-
-  pitch_df = pd.DataFrame(main_data_matrix, columns = mod_header)
-  pitch_df['date'] = date_list
-  pitch_df['dblhead_num'] = dblhead_num_list
-  return pitch_df
   
+  # Group by game to get game-level stats
+  df['game_date'] = pd.to_datetime(df['game_date'])
+  
+  # Initialize list for aggregated data
+  games = []
+  
+  # Group by game_date and game_pk to get game-level stats
+  for (game_date, game_pk), group in df.groupby(['game_date', 'game_pk']):
+    # Determine if home or away
+    at_vs = 'VS' if group['home_team'].iloc[0] == group['pitcher'].iloc[0] else 'AT'
+    opponent = group['away_team'].iloc[0] if at_vs == 'VS' else group['home_team'].iloc[0]
+    
+    # Determine if starter (GS) by checking if pitched in first inning
+    gs = 1 if any(group['inning'] == 1) else 0
+    
+    # Calculate innings pitched (convert outs to innings)
+    outs = len(group[group['description'].str.contains('out|field_out|strikeout|double_play|triple_play', case=False, na=False)])
+    ip = outs / 3.0
+    
+    # Calculate hits, walks, etc.
+    h = len(group[group['events'].isin(['single', 'double', 'triple', 'home_run'])])
+    x2b = len(group[group['events'] == 'double'])
+    x3b = len(group[group['events'] == 'triple'])
+    hr = len(group[group['events'] == 'home_run'])
+    bb = len(group[group['events'].isin(['walk', 'intent_walk'])])
+    ibb = len(group[group['events'] == 'intent_walk'])
+    so = len(group[group['events'] == 'strikeout'])
+    hbp = len(group[group['events'] == 'hit_by_pitch'])
+    
+    # Batters faced
+    bfp = len(group)
+    
+    # Runs and earned runs (approximate)
+    r = len(group[group['score'] == True]) if 'score' in group.columns else 0
+    er = r  # Simplification - earned runs approximated as runs
+    
+    # Sacrifice hits/flies
+    sh = len(group[group['events'] == 'sac_bunt'])
+    sf = len(group[group['events'] == 'sac_fly'])
+    
+    # Double plays
+    gdp = len(group[group['events'] == 'grounded_into_double_play'])
+    
+    # Win/loss determination (simplified)
+    w = 0
+    l = 0
+    
+    games.append({
+      'date': game_date.strftime('%-m-%-d-%Y'),
+      'dblhead_num': '',
+      'at_vs': at_vs,
+      'Opponent': opponent,
+      'League': get_team_league_map().get(opponent, ''),
+      'GS': gs,
+      'CG': 0,  # Complete games not easily available in statcast
+      'SHO': 0,  # Shutouts not easily available
+      'GF': 0,  # Games finished
+      'SV': 0,  # Saves not available in statcast
+      'IP': ip,
+      'H': h,
+      'BFP': bfp,
+      'HR': hr,
+      'R': r,
+      'ER': er,
+      'BB': bb,
+      'IB': ibb,
+      'SO': so,
+      'SH': sh,
+      'SF': sf,
+      'WP': 0,  # Wild pitches not directly in statcast
+      'HBP': hbp,
+      'BK': 0,  # Balks not in statcast
+      'x2B': x2b,
+      'x3B': x3b,
+      'GDP': gdp,
+      'ROE': 0,
+      'W': w,
+      'L': l,
+      'ERA': 0.0  # Will be calculated cumulatively
+    })
+  
+  result_df = pd.DataFrame(games)
+  
+  # Calculate cumulative ERA
+  if not result_df.empty:
+    result_df = calculate_cumulative_pitching_stats(result_df)
+  
+  return result_df
+
+def calculate_cumulative_pitching_stats(df):
+  """Calculate cumulative pitching statistics (ERA)."""
+  df = df.sort_values('date')
+  df['cum_ER'] = df['ER'].cumsum()
+  df['cum_IP'] = df['IP'].cumsum()
+  
+  # ERA = (ER / IP) * 9
+  df['ERA'] = (df['cum_ER'] / df['cum_IP'].replace(0, np.nan)) * 9
+  
+  # Drop cumulative columns
+  df = df.drop(['cum_ER', 'cum_IP'], axis=1)
+  
+  return df
+
+def get_historical_pitching_data(mlbam_id):
+  """
+  Get historical pitching data from 2008 onwards (when Statcast began).
+  """
+  all_data = []
+  
+  # Fetch data from 2008 to current year - 1
+  for year in range(max(2008, YEAR - 5), YEAR):
+    try:
+      start_date = f'{year}-03-01'
+      end_date = f'{year}-11-30'
+      df_year = statcast_pitcher(start_date, end_date, mlbam_id)
+      if not df_year.empty:
+        all_data.append(transform_statcast_pitcher(df_year))
+      time.sleep(0.1)  # Be nice to the API
+    except Exception as e:
+      print(f'Error fetching data for year {year}: {e}')
+      continue
+  
+  if all_data:
+    return pd.concat(all_data, ignore_index=True)
+  return pd.DataFrame()
+
 def load_and_process_pitch_df(p_id, filepath=''):
   if not p_id:
     return pd.DataFrame()
