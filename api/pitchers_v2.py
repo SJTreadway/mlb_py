@@ -13,9 +13,16 @@ from helpers import roll_column, strip_suffix, get_team_league_map, safe_float, 
 YEAR = int(os.environ['YEAR'])
 WINDOWS = [10,35,75]
 
-def process_pitching_data(df):
+def process_pitching_data(df, debug=False):
   """
   Process pitching data using pybaseball API instead of web scraping.
+  
+  Args:
+    df: DataFrame with game data
+    debug: If True, enable verbose debugging output for bullpen calculations
+  
+  Returns:
+    DataFrame with pitching and bullpen features
   """
   start_pitchers_h = [p for p in df.starting_pitcher_id_h.unique() if p is not None]
   start_pitchers_v = [p for p in df.starting_pitcher_id_v.unique() if p is not None]
@@ -27,7 +34,8 @@ def process_pitching_data(df):
   # step 2: load data from files and store into dataframe
   strt_pitch_df = get_rolling_pitching_feats(df, start_pitchers_all)
   
-  return get_bullpen_data(strt_pitch_df)
+  # step 3: add bullpen features with optional debug mode
+  return get_bullpen_data(strt_pitch_df, debug=debug)
 
 def retro_to_mlbam(retro_id):
   """Convert retro ID to MLBAM ID for API queries."""
@@ -409,7 +417,18 @@ def get_rolling_pitching_feats(df, start_pitchers_all):
   
   return df
   
-def get_bullpen_team_df(team, df):
+def get_bullpen_team_df(team, df, debug=False):
+  """
+  Calculate rolling bullpen statistics for a team.
+  
+  Args:
+    team: Team abbreviation (e.g., 'NYY')
+    df: DataFrame with game data
+    debug: If True, print debug information
+  
+  Returns:
+    DataFrame with rolling bullpen stats indexed by date_dblhead
+  """
   visit_cols = [col for col in df.columns if not col.endswith('_h')]
   visit_cols_stripped = [strip_suffix(col,'_v') for col in visit_cols]
   home_cols = [col for col in df.columns if not col.endswith('_v')]
@@ -429,8 +448,32 @@ def get_bullpen_team_df(team, df):
   df_team_h['home_game'] = 1
   df_team_h['opponent'] = opponent
   
-  df_team = df_team_h if not df_team_h.empty else df_team_v
-  df_team.sort_values(['date_dblhead'],inplace=True)
+  # FIX: Use both home and away games, not just one or the other
+  if df_team_h.empty and df_team_v.empty:
+    if debug:
+      print(f"[BULLPEN DEBUG] No games found for team {team}")
+    return pd.DataFrame()
+  
+  df_team = pd.concat([df_team_h, df_team_v], ignore_index=True)
+  df_team.sort_values(['date_dblhead'], inplace=True)
+  df_team.reset_index(drop=True, inplace=True)
+  
+  if debug:
+    print(f"[BULLPEN DEBUG] Team {team}: {len(df_team)} total games ({len(df_team_h)} home, {len(df_team_v)} away)")
+  
+  # Validate required Bpen columns exist
+  required_bpen_cols = ['Bpen_IP', 'Bpen_H', 'Bpen_BFP', 'Bpen_HR', 'Bpen_R', 'Bpen_BB', 'Bpen_SO', 'Bpen_HBP', 'Bpen_x2B', 'Bpen_x3B']
+  missing_cols = [col for col in required_bpen_cols if col not in df_team.columns]
+  if missing_cols:
+    if debug:
+      print(f"[BULLPEN DEBUG] Team {team}: Missing required columns: {missing_cols}")
+    return pd.DataFrame()
+  
+  # Check for data quality issues
+  null_counts = df_team[required_bpen_cols].isnull().sum()
+  if null_counts.any():
+    if debug:
+      print(f"[BULLPEN DEBUG] Team {team}: NULL values detected: {null_counts[null_counts > 0].to_dict()}")
   
   # defaults for pitching
   er_per_ip_def = (5/9)
@@ -443,11 +486,20 @@ def get_bullpen_team_df(team, df):
 
   cols_to_agg = ['IP', 'H','BFP', 'HR', 'R',  'BB', 'SO',  'HBP', 'x2B', 'x3B']
   winsizes = [10,35,75]
+  
+  # Collect all new columns to avoid fragmentation
+  new_columns = {}
+  
   for winsize in winsizes:
     for raw_col in cols_to_agg:
       col_agg = 'Bpen_'+raw_col
-      new_colname = 'Bpen_rollsum_'+raw_col+'_'+str(winsize)        
-      df_team[new_colname] = roll_column(df_team, col_agg, winsize)
+      new_colname = 'Bpen_rollsum_'+raw_col+'_'+str(winsize)
+      if col_agg in df_team.columns:
+        new_columns[new_colname] = roll_column(df_team, col_agg, winsize)
+      else:
+        if debug:
+          print(f"[BULLPEN DEBUG] Team {team}: Missing column {col_agg} for winsize {winsize}")
+        new_columns[new_colname] = np.zeros(len(df_team))
 
     hit_col = 'Bpen_rollsum_H_'+str(winsize)
     bb_col = 'Bpen_rollsum_BB_'+str(winsize)
@@ -470,24 +522,71 @@ def get_bullpen_team_df(team, df):
     h_bb_mod2_col = 'Bpen_H_BB_mod2_'+str(winsize)
     tb_bb_mod_col = 'Bpen_TB_BB_mod_'+str(winsize)
     tb_bb_perc_col = 'Bpen_TB_BB_perc_'+str(winsize)
-    df_team[h_bb_col] = df_team[hit_col]+df_team[bb_col]
-    df_team[xb_col] = df_team[double_col]+2*df_team[triple_col]+3*df_team[hr_col]
-    df_team[tb_col] = df_team[hit_col]+df_team[xb_col]
-    df_team[ip_mod_col] = np.maximum(df_team[ip_col], winsize*ip_per_game_def)
-    df_team[bf_mod_col] = np.maximum(df_team[bf_col], winsize*bf_per_game_def)
-    df_team[h_bb_mod_col] = df_team[h_bb_col] + h_bb_per_ip_def*(df_team[ip_mod_col]-df_team[ip_col])
-    df_team[h_bb_mod2_col] = df_team[h_bb_col] + h_bb_per_bf_def*(df_team[bf_mod_col]-df_team[bf_col])
-    df_team[so_mod_col] = df_team[so_col] + so_per_bf_def*(df_team[bf_mod_col]-df_team[bf_col])
-    df_team[tb_bb_mod_col] = (df_team[tb_col] + df_team[bb_col])+ tb_bb_perc_def*(df_team[bf_mod_col]-df_team[bf_col])
-    df_team[whip_col] = df_team[h_bb_mod_col]/df_team[ip_mod_col]
-    df_team[so_perc_col] = df_team[so_mod_col]/df_team[bf_mod_col]
-    df_team[tb_bb_perc_col] = df_team[tb_bb_mod_col]/df_team[bf_mod_col]
-    df_team[h_bb_perc_col] = df_team[h_bb_mod2_col]/df_team[bf_mod_col]
-
+    
+    # Calculate using new_columns dict to avoid fragmentation
+    h_bb = new_columns[hit_col] + new_columns[bb_col]
+    new_columns[h_bb_col] = h_bb
+    xb = new_columns[double_col] + 2*new_columns[triple_col] + 3*new_columns[hr_col]
+    new_columns[xb_col] = xb
+    tb = new_columns[hit_col] + xb
+    new_columns[tb_col] = tb
+    
+    ip_mod = np.maximum(new_columns[ip_col], winsize*ip_per_game_def)
+    new_columns[ip_mod_col] = ip_mod
+    bf_mod = np.maximum(new_columns[bf_col], winsize*bf_per_game_def)
+    new_columns[bf_mod_col] = bf_mod
+    
+    new_columns[h_bb_mod_col] = h_bb + h_bb_per_ip_def*(ip_mod - new_columns[ip_col])
+    new_columns[h_bb_mod2_col] = h_bb + h_bb_per_bf_def*(bf_mod - new_columns[bf_col])
+    new_columns[so_mod_col] = new_columns[so_col] + so_per_bf_def*(bf_mod - new_columns[bf_col])
+    new_columns[tb_bb_mod_col] = (tb + new_columns[bb_col]) + tb_bb_perc_def*(bf_mod - new_columns[bf_col])
+    
+    # Calculate final metrics
+    new_columns[whip_col] = new_columns[h_bb_mod_col] / ip_mod
+    new_columns[so_perc_col] = new_columns[so_mod_col] / bf_mod
+    new_columns[tb_bb_perc_col] = new_columns[tb_bb_mod_col] / bf_mod
+    new_columns[h_bb_perc_col] = new_columns[h_bb_mod2_col] / bf_mod
+  
+  # Concatenate all new columns at once
+  if new_columns:
+    new_df = pd.DataFrame(new_columns, index=df_team.index)
+    df_team = pd.concat([df_team, new_df], axis=1)
+  
   df_team.set_index('date_dblhead', inplace=True)
+  
+  if debug:
+    # Check if we're getting actual values or just defaults
+    sample_cols = ['Bpen_WHIP_10', 'Bpen_SO_perc_10']
+    for col in sample_cols:
+      if col in df_team.columns:
+        unique_vals = df_team[col].nunique()
+        mean_val = df_team[col].mean()
+        print(f"[BULLPEN DEBUG] Team {team}: {col} - {unique_vals} unique values, mean={mean_val:.3f}")
+  
   return df_team
   
-def get_bullpen_data(df):
+def get_bullpen_data(df, debug=False):
+  """
+  Calculate bullpen features for all games.
+  
+  Args:
+    df: DataFrame with game data
+    debug: If True, enable verbose debugging output
+  
+  Returns:
+    DataFrame with bullpen features added
+  """
+  # Check if required starting pitcher columns exist
+  required_strt_cols = ['Strt_IP_real_h', 'Strt_IP_real_v', 'Strt_BFP_h', 'Strt_BFP_v',
+                       'Strt_R_h', 'Strt_R_v', 'Strt_H_h', 'Strt_H_v', 'Strt_HR_h', 'Strt_HR_v',
+                       'Strt_x2B_h', 'Strt_x2B_v', 'Strt_BB_h', 'Strt_BB_v',
+                       'Strt_HBP_h', 'Strt_HBP_v', 'Strt_SO_h', 'Strt_SO_v']
+  
+  missing_strt_cols = [col for col in required_strt_cols if col not in df.columns]
+  if missing_strt_cols:
+    print(f"[BULLPEN WARNING] Missing starting pitcher columns: {missing_strt_cols}")
+    print("[BULLPEN WARNING] Bullpen calculation may use default values")
+  
   ## Calculate some game level stats, specifically about
   ## relative stats for starting pitcher vs bullpen
   df['Bpen_IP_h'] = 9.0-df['Strt_IP_real_h']
@@ -511,10 +610,14 @@ def get_bullpen_data(df):
   df['Bpen_SO_h'] = df['SO_v']-df['Strt_SO_h']
   df['Bpen_SO_v'] = df['SO_h']-df['Strt_SO_v']
   
+  if debug:
+    print(f"[BULLPEN DEBUG] Processing {len(df)} games")
+    print(f"[BULLPEN DEBUG] Sample Bpen_IP_h values: {df['Bpen_IP_h'].head().tolist()}")
+  
   teams = df[['team_h', 'team_v']].stack().unique().tolist()
   bullpen_team_data_dict = {}
   for team in teams:
-    bullpen_team_data_dict[team] = get_bullpen_team_df(team, df)
+    bullpen_team_data_dict[team] = get_bullpen_team_df(team, df, debug=debug)
     
   raw_cols_to_add = ['Bpen_IP', 'Bpen_BFP', 'Bpen_R', 'Bpen_H', 'Bpen_HR', 'Bpen_x2B',
     'Bpen_x3B', 'Bpen_BB', 'Bpen_HBP', 'Bpen_SO',  'Bpen_rollsum_IP_10', 'Bpen_rollsum_H_10',
@@ -545,26 +648,60 @@ def get_bullpen_data(df):
   cols_to_add = [col+suff for col in raw_cols_to_add for suff in ['_h','_v']]
   col_add_dict = {col:np.zeros(df.shape[0]) for col in cols_to_add}
   
+  # Track how many lookups succeed vs fail
+  lookups_success = 0
+  lookups_failed = 0
+  
   for i in range(df.shape[0]):
     row = df.iloc[i,:]
     home_team = row['team_h']
     visit_team = row['team_v']
     date_dblhead = row['date_dblhead']
-    curr_df = bullpen_team_data_dict[home_team]
-    if date_dblhead in curr_df.index:
+    
+    # Get home team bullpen data
+    curr_df = bullpen_team_data_dict.get(home_team)
+    if curr_df is not None and not curr_df.empty and date_dblhead in curr_df.index:
       for col in raw_cols_to_add:
-        value = curr_df.loc[date_dblhead,col]
-        col_add_dict[col+'_h'][i] = value
-    curr_df = bullpen_team_data_dict[visit_team]
-    if date_dblhead in curr_df.index:
+        if col in curr_df.columns:
+          value = curr_df.loc[date_dblhead,col]
+          col_add_dict[col+'_h'][i] = value
+      lookups_success += 1
+    else:
+      lookups_failed += 1
+      if debug and i < 5:  # Only show first 5 failures to avoid spam
+        reason = "empty dataframe" if (curr_df is None or curr_df.empty) else "date not in index"
+        print(f"[BULLPEN DEBUG] Failed lookup for home team {home_team} game {i}: {reason}")
+    
+    # Get visiting team bullpen data
+    curr_df = bullpen_team_data_dict.get(visit_team)
+    if curr_df is not None and not curr_df.empty and date_dblhead in curr_df.index:
       for col in raw_cols_to_add:
-        value = curr_df.loc[date_dblhead,col]
-        col_add_dict[col+'_v'][i] = value
+        if col in curr_df.columns:
+          value = curr_df.loc[date_dblhead,col]
+          col_add_dict[col+'_v'][i] = value
+      lookups_success += 1
+    else:
+      lookups_failed += 1
+      if debug and i < 5:
+        reason = "empty dataframe" if (curr_df is None or curr_df.empty) else "date not in index"
+        print(f"[BULLPEN DEBUG] Failed lookup for away team {visit_team} game {i}: {reason}")
   
   # Concatenate all new columns at once to avoid fragmentation
   if col_add_dict:
     new_df = pd.DataFrame(col_add_dict, index=df.index)
     df = pd.concat([df, new_df], axis=1)
+  
+  if debug:
+    success_rate = lookups_success / (lookups_success + lookups_failed) * 100 if (lookups_success + lookups_failed) > 0 else 0
+    print(f"[BULLPEN DEBUG] Bullpen lookups: {lookups_success} succeeded, {lookups_failed} failed ({success_rate:.1f}% success rate)")
+    
+    # Check final values
+    sample_cols = ['Bpen_WHIP_10_h', 'Bpen_SO_perc_10_h']
+    for col in sample_cols:
+      if col in df.columns:
+        unique_vals = df[col].nunique()
+        zero_count = (df[col] == 0).sum()
+        print(f"[BULLPEN DEBUG] Final {col}: {unique_vals} unique values, {zero_count} zeros ({zero_count/len(df)*100:.1f}%)")
   
   return df
 
