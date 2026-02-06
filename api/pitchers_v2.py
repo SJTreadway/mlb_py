@@ -188,6 +188,8 @@ def transform_statcast_pitcher(df):
 
 def calculate_cumulative_pitching_stats(df):
   """Calculate cumulative pitching statistics (ERA)."""
+  if df.empty:
+    return df
   df = df.sort_values('date')
   df['cum_ER'] = df['ER'].cumsum()
   df['cum_IP'] = df['IP'].cumsum()
@@ -249,12 +251,15 @@ def load_and_process_pitch_df(p_id, filepath=''):
   # Convert IP to proper mathematical format
   pitch_df['IP_real'] = (pitch_df.IP - (pitch_df.IP % 1)) + (pitch_df.IP % 1) * (10/3)
   
+  # Collect all new columns in a dictionary to avoid DataFrame fragmentation
+  new_columns = {}
+  
   cols_to_agg = ['IP_real', 'H','BFP', 'HR', 'R', 'ER', 'BB', 'IB', 'SO', 'SH', 'SF', 'WP', 'HBP', 'BK',
       'x2B', 'x3B']
   for winsize in WINDOWS:
     for raw_col in cols_to_agg:
       new_colname = 'rollsum_'+raw_col+'_'+str(winsize)        
-      pitch_df[new_colname] = roll_column(pitch_df, raw_col, winsize)
+      new_columns[new_colname] = roll_column(pitch_df, raw_col, winsize)
     
   er_per_ip_def = (5/9)
   h_bb_per_ip_def = 1.5
@@ -296,26 +301,45 @@ def load_and_process_pitch_df(p_id, filepath=''):
     h_bb_mod2_col = 'H_BB_mod2_'+str(winsize)
     tb_bb_mod_col = 'TB_BB_mod_'+str(winsize)
     tb_bb_perc_col = 'TB_BB_perc_'+str(winsize)
-    pitch_df[h_bb_col] = pitch_df[hit_col]+pitch_df[bb_col]
-    pitch_df[xb_col] = pitch_df[double_col]+2*pitch_df[triple_col]+3*pitch_df[hr_col]
-    pitch_df[tb_col] = pitch_df[hit_col]+pitch_df[xb_col]
-    pitch_df[ip_mod_col] = np.maximum(pitch_df[ip_col], winsize*ip_per_game_def)
-    pitch_df[bf_mod_col] = np.maximum(pitch_df[bf_col], winsize*bf_per_game_def)
-    pitch_df[er_mod_col] = pitch_df[er_col] + er_per_ip_def*(pitch_df[ip_mod_col]-pitch_df[ip_col])
-    pitch_df[fip_numer_col] = 13*pitch_df[hr_col] + 3*pitch_df[h_bb_col] -2*pitch_df[so_col]
-    pitch_df[fip_numer_mod_col] = pitch_df[fip_numer_col] + fip_numer_per_ip_def*(pitch_df[ip_mod_col]-pitch_df[ip_col])
-    pitch_df[fip_numer_mod2_col] = pitch_df[fip_numer_col] + fip_numer_per_bf_def*(pitch_df[bf_mod_col]-pitch_df[bf_col])
-    pitch_df[h_bb_mod_col] = pitch_df[h_bb_col] + h_bb_per_ip_def*(pitch_df[ip_mod_col]-pitch_df[ip_col])
-    pitch_df[h_bb_mod2_col] = pitch_df[h_bb_col] + h_bb_per_bf_def*(pitch_df[bf_mod_col]-pitch_df[bf_col])
-    pitch_df[so_mod_col] = pitch_df[so_col] + so_per_bf_def*(pitch_df[bf_mod_col]-pitch_df[bf_col])
-    pitch_df[tb_bb_mod_col] = (pitch_df[tb_col] + pitch_df[bb_col])+ tb_bb_perc_def*(pitch_df[bf_mod_col]-pitch_df[bf_col])
-    pitch_df[era_col] = (pitch_df[er_mod_col]/pitch_df[ip_mod_col])*9
-    pitch_df[fip_col] = (pitch_df[fip_numer_mod_col]/pitch_df[ip_mod_col])
-    pitch_df[fip_perc_col] = (pitch_df[fip_numer_mod_col]/pitch_df[bf_mod_col])
-    pitch_df[whip_col] = pitch_df[h_bb_mod_col]/pitch_df[ip_mod_col]
-    pitch_df[so_perc_col] = pitch_df[so_mod_col]/pitch_df[bf_mod_col]
-    pitch_df[tb_bb_perc_col] = pitch_df[tb_bb_mod_col]/pitch_df[bf_mod_col]
-    pitch_df[h_bb_perc_col] = pitch_df[h_bb_mod2_col]/pitch_df[bf_mod_col]
+    
+    # Calculate values using the new_columns dictionary
+    h_bb = new_columns[hit_col] + new_columns[bb_col]
+    new_columns[h_bb_col] = h_bb
+    xb = new_columns[double_col] + 2*new_columns[triple_col] + 3*new_columns[hr_col]
+    new_columns[xb_col] = xb
+    tb = new_columns[hit_col] + xb
+    new_columns[tb_col] = tb
+    ip_mod = np.maximum(new_columns[ip_col], winsize*ip_per_game_def)
+    new_columns[ip_mod_col] = ip_mod
+    bf_mod = np.maximum(new_columns[bf_col], winsize*bf_per_game_def)
+    new_columns[bf_mod_col] = bf_mod
+    er_mod = new_columns[er_col] + er_per_ip_def*(ip_mod-new_columns[ip_col])
+    new_columns[er_mod_col] = er_mod
+    fip_numer = 13*new_columns[hr_col] + 3*h_bb - 2*new_columns[so_col]
+    new_columns[fip_numer_col] = fip_numer
+    new_columns[fip_numer_mod_col] = fip_numer + fip_numer_per_ip_def*(ip_mod-new_columns[ip_col])
+    new_columns[fip_numer_mod2_col] = fip_numer + fip_numer_per_bf_def*(bf_mod-new_columns[bf_col])
+    h_bb_mod = h_bb + h_bb_per_ip_def*(ip_mod-new_columns[ip_col])
+    new_columns[h_bb_mod_col] = h_bb_mod
+    h_bb_mod2 = h_bb + h_bb_per_bf_def*(bf_mod-new_columns[bf_col])
+    new_columns[h_bb_mod2_col] = h_bb_mod2
+    so_mod = new_columns[so_col] + so_per_bf_def*(bf_mod-new_columns[bf_col])
+    new_columns[so_mod_col] = so_mod
+    tb_bb_mod = (tb + new_columns[bb_col]) + tb_bb_perc_def*(bf_mod-new_columns[bf_col])
+    new_columns[tb_bb_mod_col] = tb_bb_mod
+    new_columns[era_col] = (er_mod/ip_mod)*9
+    new_columns[fip_col] = (new_columns[fip_numer_mod_col]/ip_mod)
+    new_columns[fip_perc_col] = (new_columns[fip_numer_mod_col]/bf_mod)
+    new_columns[whip_col] = h_bb_mod/ip_mod
+    new_columns[so_perc_col] = so_mod/bf_mod
+    new_columns[tb_bb_perc_col] = tb_bb_mod/bf_mod
+    new_columns[h_bb_perc_col] = h_bb_mod2/bf_mod
+  
+  # Concatenate all new columns at once to avoid fragmentation
+  if new_columns:
+    new_df = pd.DataFrame(new_columns, index=pitch_df.index)
+    pitch_df = pd.concat([pitch_df, new_df], axis=1)
+  
   pitch_df['date_dblhead'] = (pitch_df['date'].astype(str) + pitch_df['dblhead_num'].astype(str)).astype(int)
   pitch_df.set_index('date_dblhead', inplace=True)
   return pitch_df 
@@ -378,8 +402,10 @@ def get_rolling_pitching_feats(df, start_pitchers_all):
           value = curr_df[col].iloc[-1]
           col_add_dict['Strt_'+col+'_h'][i] = value
   
-  for col in cols_to_add:
-    df[col] = col_add_dict[col]
+  # Concatenate all new columns at once to avoid fragmentation
+  if col_add_dict:
+    new_df = pd.DataFrame(col_add_dict, index=df.index)
+    df = pd.concat([df, new_df], axis=1)
   
   return df
   
@@ -535,7 +561,10 @@ def get_bullpen_data(df):
         value = curr_df.loc[date_dblhead,col]
         col_add_dict[col+'_v'][i] = value
   
-  for col in cols_to_add:
-    df[col] = col_add_dict[col]
-
+  # Concatenate all new columns at once to avoid fragmentation
+  if col_add_dict:
+    new_df = pd.DataFrame(col_add_dict, index=df.index)
+    df = pd.concat([df, new_df], axis=1)
+  
   return df
+

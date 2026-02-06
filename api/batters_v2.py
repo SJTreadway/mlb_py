@@ -172,6 +172,8 @@ def transform_statcast_batter(df):
 
 def calculate_cumulative_stats(df):
   """Calculate cumulative batting statistics (AVG, OBP, SLG)."""
+  if df.empty:
+    return df
   df = df.sort_values('date')
   df['cum_AB'] = df['AB'].cumsum()
   df['cum_H'] = df['H'].cumsum()
@@ -228,11 +230,15 @@ def process_batter_df(b_id):
     t_col = batter_df['dblhead_num'].copy()
     t_col = t_col.fillna(0)
     batter_df['dblheader_int'] = t_col.astype(int)
+    
+    # Collect all new columns in a dictionary to avoid DataFrame fragmentation
+    new_columns = {}
+    
     for winsize in WINDOWS:
       suff = str(winsize)
       for raw_col in ['AB','BB','H','x2B','x3B','HR','HBP','SO','SB','CS']:
         new_col = 'rollsum_'+raw_col+'_'+suff
-        batter_df[new_col] = roll_column(batter_df, raw_col, winsize)
+        new_columns[new_col] = roll_column(batter_df, raw_col, winsize)
 
       ab_per_game_def = 2
       pa_per_game_def = 2
@@ -252,7 +258,7 @@ def process_batter_df(b_id):
       hr_col = 'rollsum_HR_'+str(winsize)
       so_col = 'rollsum_SO_'+str(winsize)
 
-      # Columns I will define below
+      # Calculate intermediate values
       abmod_col = 'ABmod_'+str(winsize)
       fakeab_col = 'fakeAB_'+str(winsize)
       pa_col = 'PA_'+str(winsize)
@@ -267,37 +273,43 @@ def process_batter_df(b_id):
       obs_col = 'OBS_'+str(winsize)
 
       # calculate BATAVG, with smoothing for low AB numbers
-      batter_df[abmod_col] = np.maximum(batter_df[ab_col],winsize*ab_per_game_def)
-      batter_df[fakeab_col] = np.minimum(batter_df[abmod_col]-batter_df[ab_col],0)
-      batter_df[batavg_col] = (batter_df[h_col] + (batter_df[fakeab_col]*batavg_def))/(batter_df[abmod_col])
+      abmod = np.maximum(new_columns[ab_col], winsize*ab_per_game_def)
+      new_columns[abmod_col] = abmod
+      fakeab = np.minimum(abmod - new_columns[ab_col], 0)
+      new_columns[fakeab_col] = fakeab
+      new_columns[batavg_col] = (new_columns[h_col] + (fakeab * batavg_def)) / abmod
 
       # calculate SLG, with smoothing for low AB numbers
-      batter_df[xb_col] = batter_df[doub_col] + 2*batter_df[trip_col] + 3*batter_df[hr_col]
-      batter_df[slg_col] = (batter_df[h_col] + batter_df[xb_col] +
-                                (batter_df[fakeab_col]*slg_def))/(batter_df[abmod_col])
+      xb = new_columns[doub_col] + 2*new_columns[trip_col] + 3*new_columns[hr_col]
+      new_columns[xb_col] = xb
+      new_columns[slg_col] = (new_columns[h_col] + xb + (fakeab * slg_def)) / abmod
 
       # calculate OBP, with smoothing for low PA numbers
-      batter_df[pa_col] = batter_df[ab_col]+batter_df[bb_col]+batter_df[hbp_col]
-      batter_df[pamod_col] = np.maximum(batter_df[pa_col],winsize*pa_per_game_def)
-      batter_df[fakepa_col] = np.minimum(batter_df[pamod_col]-batter_df[pa_col],0)
-      batter_df[obp_col] = (batter_df[h_col] + batter_df[bb_col] + batter_df[hbp_col]
-                            + (batter_df[fakepa_col]*obp_def))/(
-                              batter_df[pamod_col])
+      pa = new_columns[ab_col] + new_columns[bb_col] + new_columns[hbp_col]
+      new_columns[pa_col] = pa
+      pamod = np.maximum(pa, winsize*pa_per_game_def)
+      new_columns[pamod_col] = pamod
+      fakepa = np.minimum(pamod - pa, 0)
+      new_columns[fakepa_col] = fakepa
+      new_columns[obp_col] = (new_columns[h_col] + new_columns[bb_col] + new_columns[hbp_col] + (fakepa * obp_def)) / pamod
 
       # calculate SLGmod, with smoothing for low PA numbers
-      batter_df[slgmod_col] = (batter_df[so_col] + batter_df[bb_col] + batter_df[hbp_col]
-                                +batter_df[xb_col] + (batter_df[fakepa_col]*slgmod_def))/(
-                              batter_df[pamod_col])
+      new_columns[slgmod_col] = (new_columns[so_col] + new_columns[bb_col] + new_columns[hbp_col] + xb + (fakepa * slgmod_def)) / pamod
 
       # calculate SObat_perc, with smoothing for low PA numbers
-      batter_df[so_bat_perc_col] = (batter_df[so_col] + (batter_df[fakepa_col]*so_bat_perc_def))/(
-                              batter_df[pamod_col])
+      new_columns[so_bat_perc_col] = (new_columns[so_col] + (fakepa * so_bat_perc_def)) / pamod
 
       # calculate OBS
-      batter_df[obs_col] = batter_df[obp_col]+batter_df[slg_col]
-
-      batter_df['date_dblhead'] = (batter_df['date'].astype(str) + batter_df['dblheader_int'].astype(str)).astype(int)
-      batter_df.set_index('date_dblhead', inplace=True)
+      new_columns[obs_col] = new_columns[obp_col] + new_columns[slg_col]
+    
+    # Concatenate all new columns at once to avoid fragmentation
+    if new_columns:
+      new_df = pd.DataFrame(new_columns, index=batter_df.index)
+      batter_df = pd.concat([batter_df, new_df], axis=1)
+    
+    # Set index after all columns are added
+    batter_df['date_dblhead'] = (batter_df['date'].astype(str) + batter_df['dblheader_int'].astype(str)).astype(int)
+    batter_df.set_index('date_dblhead', inplace=True)
   except Exception as e:
     try:
       print(f'issue for {fname} at position {pos}, returning None: {e}')
