@@ -3,6 +3,7 @@ import time
 import os
 import numpy as np
 import pandas as pd
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from tqdm import tqdm
 
@@ -12,6 +13,7 @@ from helpers import roll_column, strip_suffix, get_team_league_map, safe_float, 
 
 YEAR = int(os.environ['YEAR'])
 WINDOWS = [10,35,75]
+MAX_API_WORKERS = int(os.environ.get('MAX_API_WORKERS', '8'))
 
 def process_pitching_data(df, debug=False):
   """
@@ -54,49 +56,45 @@ def load_pitching_data(start_pitchers_all):
   Load pitching data using pybaseball API (statcast_pitcher).
   Much faster than scraping Retrosheet and Baseball-Reference.
   """
-  for p_id in tqdm(start_pitchers_all, desc='Loading pitcher data via API'):
-    if p_id and not pd.isna(p_id):
-      fname_out = 'data/pitch/pitching_data_'+p_id+'.csv'
-      
-      # Convert retro ID to MLBAM ID for API
-      mlbam_id = retro_to_mlbam(p_id)
-      if not mlbam_id:
-        print(f'Skipping pitcher {p_id} - could not convert to MLBAM ID')
-        continue
-      
-      # Fetch current season data via API
-      start_date = f'{YEAR}-03-01'
-      end_date = f'{YEAR}-11-30'
-      
-      try:
-        df_season = statcast_pitcher(start_date, end_date, mlbam_id)
-        if df_season.empty:
-          print(f'No data found for pitcher {p_id} (MLBAM: {mlbam_id})')
-          continue
-          
-        # Transform statcast data to match expected format
-        df_season = transform_statcast_pitcher(df_season)
-        
-        if not os.path.exists(fname_out):
-          # Get historical data using API (start from 2008 when Statcast began)
-          df_historical = get_historical_pitching_data(mlbam_id)
-          df_temp = pd.concat((df_historical, df_season))
-        else:
-          # Load existing data and concatenate
-          df_existing = pd.read_csv(fname_out)
-          df_temp = pd.concat((df_existing, df_season))
-          # Remove duplicates
-          df_temp = df_temp.drop_duplicates(subset=['date', 'dblhead_num'], keep='first')
-        
-        # Save the updated data
-        df_temp.to_csv(fname_out, index=False)
-        
-        # Small delay to be nice to the API
-        time.sleep(0.1)
-        
-      except Exception as e:
-        print(f'Error fetching data for pitcher {p_id}: {e}')
-        continue
+  valid_pitcher_ids = [p_id for p_id in start_pitchers_all if p_id and not pd.isna(p_id)]
+  if not valid_pitcher_ids:
+    return
+
+  def _fetch_and_store_pitcher(p_id):
+    fname_out = 'data/pitch/pitching_data_'+p_id+'.csv'
+    mlbam_id = retro_to_mlbam(p_id)
+    if not mlbam_id:
+      return f'Skipping pitcher {p_id} - could not convert to MLBAM ID'
+
+    start_date = f'{YEAR}-03-01'
+    end_date = f'{YEAR}-11-30'
+    try:
+      df_season = statcast_pitcher(start_date, end_date, mlbam_id)
+      if df_season.empty:
+        return f'No data found for pitcher {p_id} (MLBAM: {mlbam_id})'
+
+      df_season = transform_statcast_pitcher(df_season)
+      if not os.path.exists(fname_out):
+        df_historical = get_historical_pitching_data(mlbam_id)
+        df_temp = pd.concat((df_historical, df_season))
+      else:
+        df_existing = pd.read_csv(fname_out)
+        df_temp = pd.concat((df_existing, df_season))
+        df_temp = df_temp.drop_duplicates(subset=['date', 'dblhead_num'], keep='first')
+
+      df_temp.to_csv(fname_out, index=False)
+      time.sleep(0.1)
+      return None
+    except Exception as e:
+      return f'Error fetching data for pitcher {p_id}: {e}'
+
+  worker_count = max(1, min(MAX_API_WORKERS, len(valid_pitcher_ids)))
+  with ThreadPoolExecutor(max_workers=worker_count) as executor:
+    futures = [executor.submit(_fetch_and_store_pitcher, p_id) for p_id in valid_pitcher_ids]
+    for future in tqdm(as_completed(futures), total=len(futures), desc='Loading pitcher data via API'):
+      msg = future.result()
+      if msg:
+        print(msg)
 
 def transform_statcast_pitcher(df):
   """
@@ -354,8 +352,18 @@ def load_and_process_pitch_df(p_id, filepath=''):
     
 def get_rolling_pitching_feats(df, start_pitchers_all):
   pitcher_data_dict = {}
-  for p_id in start_pitchers_all:
-    pitcher_data_dict[p_id] = load_and_process_pitch_df(p_id,'data/pitch/')
+  with ThreadPoolExecutor(max_workers=max(1, min(MAX_API_WORKERS, len(start_pitchers_all)))) as executor:
+    future_to_pid = {
+      executor.submit(load_and_process_pitch_df, p_id, 'data/pitch/'): p_id
+      for p_id in start_pitchers_all
+    }
+    for future in as_completed(future_to_pid):
+      p_id = future_to_pid[future]
+      try:
+        pitcher_data_dict[p_id] = future.result()
+      except Exception as e:
+        print(f'Error processing pitcher file for {p_id}: {e}')
+        pitcher_data_dict[p_id] = pd.DataFrame()
 
   raw_cols_to_add = ['GS',  'IP',
       'H', 'BFP', 'HR', 'R', 'ER', 'BB', 'IB', 'SO', 'SH', 'SF', 'WP',

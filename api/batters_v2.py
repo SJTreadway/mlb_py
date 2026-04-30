@@ -3,6 +3,7 @@ import os
 import time
 import pandas as pd
 import numpy as np
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from tqdm import tqdm
 
@@ -14,6 +15,7 @@ from bs4 import BeautifulSoup
 
 WINDOWS = [30,75,162,350]
 YEAR = int(os.environ['YEAR'])
+MAX_API_WORKERS = int(os.environ.get('MAX_API_WORKERS', '8'))
 
 def process_batting_data(df):
   """
@@ -52,49 +54,45 @@ def load_batting_data(batter_ids):
   Load batting data using pybaseball API (statcast_batter).
   Much faster than scraping Retrosheet and Baseball-Reference.
   """
-  for b_id in tqdm(batter_ids, desc='Loading batter data via API'):
-    if b_id and not pd.isna(b_id):
-      fname_out = 'data/bat/batting_data_'+b_id+'.csv'
-      
-      # Convert retro ID to MLBAM ID for API
-      mlbam_id = retro_to_mlbam(b_id)
-      if not mlbam_id:
-        print(f'Skipping batter {b_id} - could not convert to MLBAM ID')
-        continue
-      
-      # Fetch current season data via API
-      start_date = f'{YEAR}-03-01'
-      end_date = f'{YEAR}-11-30'
-      
-      try:
-        df_season = statcast_batter(start_date, end_date, mlbam_id)
-        if df_season.empty:
-          print(f'No data found for batter {b_id} (MLBAM: {mlbam_id})')
-          continue
-          
-        # Transform statcast data to match expected format
-        df_season = transform_statcast_batter(df_season)
-        
-        if not os.path.exists(fname_out):
-          # Get historical data using API (start from 2008 when Statcast began)
-          df_historical = get_historical_batting_data(mlbam_id)
-          df_temp = pd.concat((df_historical, df_season))
-        else:
-          # Load existing data and concatenate
-          df_existing = pd.read_csv(fname_out)
-          df_temp = pd.concat((df_existing, df_season))
-          # Remove duplicates
-          df_temp = df_temp.drop_duplicates(subset=['date', 'dblhead_num'], keep='first')
-        
-        # Save the updated data
-        df_temp.to_csv(fname_out, index=False)
-        
-        # Small delay to be nice to the API
-        time.sleep(0.1)
-        
-      except Exception as e:
-        print(f'Error fetching data for batter {b_id}: {e}')
-        continue
+  valid_batter_ids = [b_id for b_id in batter_ids if b_id and not pd.isna(b_id)]
+  if not valid_batter_ids:
+    return
+
+  def _fetch_and_store_batter(b_id):
+    fname_out = 'data/bat/batting_data_'+b_id+'.csv'
+    mlbam_id = retro_to_mlbam(b_id)
+    if not mlbam_id:
+      return f'Skipping batter {b_id} - could not convert to MLBAM ID'
+
+    start_date = f'{YEAR}-03-01'
+    end_date = f'{YEAR}-11-30'
+    try:
+      df_season = statcast_batter(start_date, end_date, mlbam_id)
+      if df_season.empty:
+        return f'No data found for batter {b_id} (MLBAM: {mlbam_id})'
+
+      df_season = transform_statcast_batter(df_season)
+      if not os.path.exists(fname_out):
+        df_historical = get_historical_batting_data(mlbam_id)
+        df_temp = pd.concat((df_historical, df_season))
+      else:
+        df_existing = pd.read_csv(fname_out)
+        df_temp = pd.concat((df_existing, df_season))
+        df_temp = df_temp.drop_duplicates(subset=['date', 'dblhead_num'], keep='first')
+
+      df_temp.to_csv(fname_out, index=False)
+      time.sleep(0.1)
+      return None
+    except Exception as e:
+      return f'Error fetching data for batter {b_id}: {e}'
+
+  worker_count = max(1, min(MAX_API_WORKERS, len(valid_batter_ids)))
+  with ThreadPoolExecutor(max_workers=worker_count) as executor:
+    futures = [executor.submit(_fetch_and_store_batter, b_id) for b_id in valid_batter_ids]
+    for future in tqdm(as_completed(futures), total=len(futures), desc='Loading batter data via API'):
+      msg = future.result()
+      if msg:
+        print(msg)
 
 def transform_statcast_batter(df):
   """
@@ -328,8 +326,15 @@ def get_batter_ids_from_row(row):
 
 def get_batting_feats(df, batter_ids):
   batter_data_dict = {}
-  for b_id in batter_ids:
-    batter_data_dict[b_id] = process_batter_df(b_id) 
+  with ThreadPoolExecutor(max_workers=max(1, min(MAX_API_WORKERS, len(batter_ids)))) as executor:
+    future_to_bid = {executor.submit(process_batter_df, b_id): b_id for b_id in batter_ids}
+    for future in as_completed(future_to_bid):
+      b_id = future_to_bid[future]
+      try:
+        batter_data_dict[b_id] = future.result()
+      except Exception as e:
+        print(f'Error processing batter file for {b_id}: {e}')
+        batter_data_dict[b_id] = None
   new_col_dict = {}
   colstems = ['BATAVG', 'OBP', 'SLG', 'OBS', 'SLGmod','SObat_perc']
   new_col_list = [stem+'_'+str(winsize)+'_b'+str(i)+hv for stem in colstems for winsize in WINDOWS
