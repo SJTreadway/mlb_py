@@ -54,6 +54,10 @@ TOMORROW_GAMES = int(os.environ["TOMORROW_GAMES"])
 # Causes data pull even if file exists
 REFRESH_DATA = int(os.environ["REFRESH_DATA"])
 
+# Model file locations
+WINS_MODEL_FILE = "models/win_model_2026v1.pkl"
+RUNS_MODEL_FILE = "models/runs_scored_model_v1.pkl"
+
 # Set of features we will predict on
 RUNS_SCORED_FEAT_SET = [
     "OBP_162",
@@ -134,7 +138,7 @@ HOME_VICTORY_FEAT_SET = [
 
 
 def predict_winner(X):
-    with open("models/win_model_v1.pkl", "rb") as pickle_file:
+    with open(WINS_MODEL_FILE, "rb") as pickle_file:
         model = pickle.load(pickle_file)
     pred = model.predict(X)
     prob = model.predict_proba(X)[:, 1]
@@ -142,7 +146,7 @@ def predict_winner(X):
 
 
 def predict_runs_scored(X):
-    with open("models/runs_scored_model_v1.pkl", "rb") as pickle_file:
+    with open(RUNS_MODEL_FILE, "rb") as pickle_file:
         model = pickle.load(pickle_file)
     probs = model.predict_proba(X)
     return probs
