@@ -1,4 +1,3 @@
-import re
 import os
 import time
 import requests
@@ -10,11 +9,10 @@ from tqdm import tqdm
 
 from helpers import roll_column, get_team_league_map
 
-from pybaseball import playerid_reverse_lookup, statcast_batter, fielding_stats
+from pybaseball import playerid_reverse_lookup, statcast_batter
 
 WINDOWS = [30, 75, 162, 350]
 MLB_API_PEOPLE = "https://statsapi.mlb.com/api/v1/people"
-FIELDING_CACHE = "data/fielding_cache.csv"
 YEAR = int(os.environ["YEAR"])
 MAX_API_WORKERS = int(os.environ.get("MAX_API_WORKERS", "8"))
 
@@ -200,11 +198,6 @@ def transform_statcast_batter(df):
                 "AVG": 0.0,
                 "OBP": 0.0,
                 "SLG": 0.0,
-                "BP": (
-                    group["batting_order"].iloc[0]
-                    if "batting_order" in group.columns
-                    else 0
-                ),
             }
         )
 
