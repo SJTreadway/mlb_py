@@ -19,8 +19,8 @@ import pickle
 from api.teams import generate_team_window_features
 from api.lineups import get_lineups, get_run_total_feats
 from api.odds import get_over_odds, get_under_odds, get_total_line, get_money_line_price, line_to_bet, calculate_edge
-from api.pitchers import process_pitching_data
-from api.batters import process_batting_data
+from api.pitchers_v2 import process_pitching_data
+from api.batters_v2 import process_batting_data
 
 from cleanup import cleanup_directory
 
