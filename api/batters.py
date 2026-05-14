@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 import requests
 import cfscrape
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from tqdm import tqdm
 
@@ -18,6 +19,12 @@ URL_PREFIX = 'https://www.retrosheet.org/boxesetc/'
 BREF_URL_PREFIX = 'https://www.baseball-reference.com/players/gl.fcgi'
 WINDOWS = [30,75,162,350]
 YEAR = int(os.environ['YEAR'])
+MAX_API_WORKERS = int(os.environ.get('MAX_API_WORKERS', '8'))
+# Scraping B-R / Retrosheet: keep concurrency low to avoid throttling (separate from Statcast v2).
+MAX_SCRAPE_WORKERS = int(os.environ.get('MAX_SCRAPE_WORKERS', '2'))
+CFSCRAPE_DELAY = float(os.environ.get('CFSCRAPE_DELAY', '5.0'))
+SCRAPE_COOLDOWN_SEC = float(os.environ.get('SCRAPE_COOLDOWN_SEC', '2.0'))
+RETR_SHEET_DELAY_SEC = float(os.environ.get('RETR_SHEET_DELAY_SEC', '0.35'))
 
 def process_batting_data(df):
   # step 1: get unique batter ids from our dataframe
@@ -37,21 +44,34 @@ def process_batting_data(df):
   return get_lineup_averages(bat_df)
 
 def load_batting_data(batter_ids):
-  for b_id in tqdm(batter_ids):
-    if b_id:
-      fname_out = 'data/bat/batting_data_'+b_id+'.csv'
+  valid_batter_ids = [b_id for b_id in batter_ids if b_id and not pd.isna(b_id)]
+  if not valid_batter_ids:
+    return
+
+  def _fetch_and_store_batter(b_id):
+    fname_out = 'data/bat/batting_data_'+b_id+'.csv'
+    try:
       df_season = get_bref_current_season_data(b_id)
       if not os.path.exists(fname_out):
         df_temp = get_full_batting_data(b_id)
         df_temp = pd.concat((df_temp, df_season))
       else:
-        # load existing data and concatenate
         df_existing = pd.read_csv(fname_out)
         df_temp = pd.concat((df_existing, df_season))
-        # remove duplicates
         df_temp = df_temp.drop_duplicates(subset=['date', 'dblhead_num'], keep='first')
-      # save the updated data
       df_temp.to_csv(fname_out, index=False)
+      time.sleep(SCRAPE_COOLDOWN_SEC)
+      return None
+    except Exception as e:
+      return f'Error loading batting data for batter {b_id}: {e}'
+
+  worker_count = max(1, min(MAX_SCRAPE_WORKERS, len(valid_batter_ids)))
+  with ThreadPoolExecutor(max_workers=worker_count) as executor:
+    futures = [executor.submit(_fetch_and_store_batter, b_id) for b_id in valid_batter_ids]
+    for future in tqdm(as_completed(futures), total=len(futures), desc='Loading batter data'):
+      msg = future.result()
+      if msg:
+        print(msg)
 
 # Get all the data for a particular batter
 def get_full_batting_data(batter_id):
@@ -61,6 +81,7 @@ def get_full_batting_data(batter_id):
   df_batting = pd.DataFrame()
   for url in link_list:
     df_batting = pd.concat((df_batting, get_season_batting_data(url)))
+    time.sleep(RETR_SHEET_DELAY_SEC)
   return df_batting
         
 def get_bref_current_season_data(pid):
@@ -75,7 +96,7 @@ def get_bref_current_season_data(pid):
     'Referer': url,
   }
 
-  scraper_one = cfscrape.create_scraper(sess=s, delay=3.1)
+  scraper_one = cfscrape.create_scraper(sess=s, delay=CFSCRAPE_DELAY)
   page = scraper_one.get(url)
   soup = BeautifulSoup(page.content, 'html.parser')
   target_table = soup.find("table", id="players_standard_batting")
@@ -330,8 +351,15 @@ def get_batter_ids_from_row(row):
 
 def get_batting_feats(df, batter_ids):
   batter_data_dict = {}
-  for b_id in batter_ids:
-    batter_data_dict[b_id] = process_batter_df(b_id) 
+  with ThreadPoolExecutor(max_workers=max(1, min(MAX_API_WORKERS, len(batter_ids)))) as executor:
+    future_to_bid = {executor.submit(process_batter_df, b_id): b_id for b_id in batter_ids}
+    for future in as_completed(future_to_bid):
+      b_id = future_to_bid[future]
+      try:
+        batter_data_dict[b_id] = future.result()
+      except Exception as e:
+        print(f'Error processing batter file for {b_id}: {e}')
+        batter_data_dict[b_id] = None
   new_col_dict = {}
   colstems = ['BATAVG', 'OBP', 'SLG', 'OBS', 'SLGmod','SObat_perc']
   new_col_list = [stem+'_'+str(winsize)+'_b'+str(i)+hv for stem in colstems for winsize in WINDOWS

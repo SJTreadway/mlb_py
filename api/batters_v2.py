@@ -7,9 +7,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from tqdm import tqdm
 
-from helpers import roll_column, get_team_league_map, safe_float, safe_int
+from helpers import roll_column, get_team_league_map
 
-from pybaseball import playerid_reverse_lookup, statcast_batter, playerid_lookup
+from pybaseball import playerid_reverse_lookup, statcast_batter
 
 from bs4 import BeautifulSoup
 
@@ -203,7 +203,7 @@ def get_historical_batting_data(mlbam_id):
       df_year = statcast_batter(start_date, end_date, mlbam_id)
       if not df_year.empty:
         all_data.append(transform_statcast_batter(df_year))
-      time.sleep(0.1)  # Be nice to the API
+      time.sleep(0.1)
     except Exception as e:
       print(f'Error fetching data for year {year}: {e}')
       continue
@@ -215,7 +215,6 @@ def get_historical_batting_data(mlbam_id):
 def process_batter_df(b_id):
   dict_def = get_position_defaults()
   fname = f'data/bat/batting_data_{b_id}.csv'
-  pos = None  # Initialize to avoid NameError in except block
   try:
     batter_df = pd.read_csv(fname)
     pos = batter_df.Pos.mode()[0]

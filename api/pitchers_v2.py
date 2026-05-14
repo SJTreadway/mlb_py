@@ -9,7 +9,7 @@ from tqdm import tqdm
 
 from pybaseball import playerid_reverse_lookup, statcast_pitcher
 
-from helpers import roll_column, strip_suffix, get_team_league_map, safe_float, safe_int
+from helpers import roll_column, strip_suffix, get_team_league_map
 
 YEAR = int(os.environ['YEAR'])
 WINDOWS = [10,35,75]

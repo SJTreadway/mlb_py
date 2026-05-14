@@ -27,12 +27,18 @@ def safe_float(s):
     return 0
 
 def get_team_league_map():
-  return {
-  'BAL': 'A', 'BOS': 'A', 'CHW': 'A', 'CLE': 'A', 'DET': 'A',
-  'HOU': 'A', 'KCR': 'A', 'LAA': 'A', 'MIN': 'A', 'NYY': 'A',
-  'ATH': 'A', 'SEA': 'A', 'TBR': 'A', 'TEX': 'A', 'TOR': 'A',
-
-  'ARI': 'N', 'ATL': 'N', 'CHC': 'N', 'CIN': 'N', 'COL': 'N',
-  'LAD': 'N', 'MIA': 'N', 'MIL': 'N', 'NYM': 'N', 'PHI': 'N',
-  'PIT': 'N', 'SDP': 'N', 'SFG': 'N', 'STL': 'N', 'WSN': 'N'
+   return {
+   # AL East
+   'BAL': 'A', 'BOS': 'A', 'NYY': 'A', 'TB': 'A', 'TBR': 'A', 'TOR': 'A',
+   # AL Central
+   'CWS': 'A', 'CHW': 'A', 'CLE': 'A', 'DET': 'A', 'KC': 'A', 'KCR': 'A', 'MIN': 'A',
+   # AL West
+   'HOU': 'A', 'LAA': 'A', 'SEA': 'A', 'TEX': 'A', 'OAK': 'A', 'ATH': 'A',
+   
+   # NL East
+   'ATL': 'N', 'MIA': 'N', 'NYM': 'N', 'PHI': 'N', 'WSN': 'N', 'WAS': 'N',
+   # NL Central
+   'CHC': 'N', 'CIN': 'N', 'MIL': 'N', 'PIT': 'N', 'STL': 'N',
+   # NL West
+   'ARI': 'N', 'AZ': 'N', 'COL': 'N', 'LAD': 'N', 'SDP': 'N', 'SD': 'N', 'SFG': 'N', 'SF': 'N'
 }

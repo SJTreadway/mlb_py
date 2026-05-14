@@ -12,7 +12,7 @@ pd.set_option('display.max_rows',1000)
 TEAMS = [
   "LAA", "MIL", "HOU", "BAL",
   "BOS", "CHW", "CLE", "DET", 
-  "KCR", "MIN", "NYY", "OAK", 
+  "KCR", "MIN", "NYY", "ATH", 
   "SEA", "TBR", "TEX", "TOR", 
   "ARI", "ATL", "CIN", "COL",
   "SDP", "MIA", "NYM", "PHI",
