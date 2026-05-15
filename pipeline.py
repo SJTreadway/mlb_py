@@ -175,7 +175,6 @@ HR_FEAT_SET = [
     "opp_FB_perc_35",
     "opp_FB_perc_75",
     "park_hr_factor",
-    "favorable_platoon",
     "batting_slot",
 ]
 

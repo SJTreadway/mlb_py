@@ -67,7 +67,6 @@ FEATURE_COLS = [
     "opp_FB_perc_35",
     "opp_FB_perc_75",
     "park_hr_factor",
-    "favorable_platoon",
     "batting_slot",
 ]
 
@@ -201,7 +200,6 @@ def transform_statcast_to_game_level(df):
         # pitcher data points
         p_throws = group["p_throws"].iloc[0] if "p_throws" in group.columns else ""
         stand = group["stand"].iloc[0] if "stand" in group.columns else ""
-        favorable_platoon = int(stand != p_throws and stand != "" and p_throws != "")
         opp_pitcher_id = int(group["pitcher"].iloc[0])
         # this is from the BATTER's perspective
         # group is all pitches the batter saw in that game
@@ -254,7 +252,6 @@ def transform_statcast_to_game_level(df):
                 "sweet_spots": sweet_spots,
                 "barrels": barrels,
                 "p_throws": p_throws,
-                "favorable_platoon": favorable_platoon,
                 "opp_pitcher_id": opp_pitcher_id,
                 "opp_is_starter": opp_is_starter,
                 "HR_vs_R": hr if p_throws == "R" else 0,
@@ -429,7 +426,6 @@ def compute_training_rows(all_player_games, pitcher_dict):
                 "park_hr_factor": PARK_HR_FACTORS.get(
                     str(current.get("opponent", "")), 100
                 ),
-                "favorable_platoon": current.get("favorable_platoon", 0),
                 "hit_hr": int(current.get("HR", 0) > 0),
                 **pitcher_feats,
             }
