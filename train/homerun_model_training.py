@@ -20,6 +20,7 @@ from sklearn.calibration import CalibratedClassifierCV
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.metrics import roc_auc_score, brier_score_loss
 import joblib
+import pickle
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
@@ -27,6 +28,7 @@ CACHE_PATH = "data/hr_training_data.csv"
 MODEL_PATH = "models/homerun_model_2026v1.pkl"
 
 MAX_API_WORKERS = int(os.environ.get("MAX_API_WORKERS", "8"))
+API_SLEEP = float(os.environ.get("API_SLEEP", "0.5"))
 
 START_YEAR = 2020
 END_YEAR = 2024
@@ -286,7 +288,20 @@ def build_all_player_games(start_year=START_YEAR, end_year=END_YEAR, min_pa=MIN_
     )
     print(f"{len(mlbam_ids)} unique players found")
 
-    all_player_games = {}
+    checkpoint_path = CACHE_PATH.replace(".csv", "_batter_checkpoint.pkl")
+
+    # resume from checkpoint if exists
+    if os.path.exists(checkpoint_path):
+        with open(checkpoint_path, "rb") as f:
+            all_player_games = pickle.load(f)
+        print(
+            f"Resumed from checkpoint — {len(all_player_games)} batters already pulled"
+        )
+        remaining = [mid for mid in mlbam_ids if mid not in all_player_games]
+        print(f"{len(remaining)} batters remaining")
+    else:
+        all_player_games = {}
+        remaining = mlbam_ids
 
     def _fetch_batter(mlbam_id):
         player_seasons = []
@@ -296,20 +311,30 @@ def build_all_player_games(start_year=START_YEAR, end_year=END_YEAR, min_pa=MIN_
                 gdf["year"] = year
                 gdf["mlbam_id"] = mlbam_id
                 player_seasons.append(gdf)
-            time.sleep(0.1)
+            time.sleep(API_SLEEP)
         if player_seasons:
             combined = pd.concat(player_seasons, ignore_index=True)
             return mlbam_id, combined
         return mlbam_id, None
 
     with ThreadPoolExecutor(max_workers=MAX_API_WORKERS) as executor:
-        futures = {executor.submit(_fetch_batter, mid): mid for mid in mlbam_ids}
-        for future in tqdm(
-            as_completed(futures), total=len(futures), desc="Loading batter data"
+        futures = {executor.submit(_fetch_batter, mid): mid for mid in remaining}
+        for i, future in enumerate(
+            tqdm(as_completed(futures), total=len(futures), desc="Loading batter data"),
+            1,
         ):
             mlbam_id, result = future.result()
             if result is not None:
                 all_player_games[mlbam_id] = result
+
+            # save checkpoint every 50 batters
+            if i % 50 == 0:
+                with open(checkpoint_path, "wb") as f:
+                    pickle.dump(all_player_games, f)
+
+    # clean up checkpoint on successful completion
+    if os.path.exists(checkpoint_path):
+        os.remove(checkpoint_path)
 
     print(f"Done — pulled data for {len(all_player_games)} players")
     return all_player_games
@@ -554,8 +579,9 @@ def build_pitcher_dict(
     all_player_games, start_year=START_YEAR, end_year=END_YEAR, min_starts=5
 ):
     """Pull Statcast data for all opposing pitchers found in batter games."""
-    # collect unique pitcher MLBAM IDs from batter game rows
-    opp_pitcher_ids = set()
+    checkpoint_path = CACHE_PATH.replace(".csv", "_pitcher_checkpoint.pkl")
+    # collect qualified starter ids
+    opp_pitcher_ids = {}
     for df in all_player_games.values():
         if "opp_pitcher_id" in df.columns and "opp_is_starter" in df.columns:
             starters = (
@@ -563,12 +589,20 @@ def build_pitcher_dict(
             )
             for pid in starters:
                 opp_pitcher_ids[pid] = opp_pitcher_ids.get(pid, 0) + 1
-    # only pull pitchers with enough starts
+
     qualified = {pid for pid, count in opp_pitcher_ids.items() if count >= min_starts}
     print(f"{len(qualified)} qualified starting pitchers (min {min_starts} starts)")
 
-    print(f"Pulling Statcast data for {len(opp_pitcher_ids)} pitchers...")
-    pitcher_dict = {}
+    # resume from checkpoint if exists
+    if os.path.exists(checkpoint_path):
+        with open(checkpoint_path, "rb") as f:
+            pitcher_dict = pickle.load(f)
+        print(f"Resumed from checkpoint — {len(pitcher_dict)} pitchers already pulled")
+        remaining = [pid for pid in qualified if pid not in pitcher_dict]
+        print(f"{len(remaining)} pitchers remaining")
+    else:
+        pitcher_dict = {}
+        remaining = list(qualified)
 
     def _fetch_pitcher(mlbam_id):
         pitcher_seasons = []
@@ -577,14 +611,14 @@ def build_pitcher_dict(
             if gdf is not None and not gdf.empty:
                 gdf["year"] = year
                 pitcher_seasons.append(gdf)
-            time.sleep(0.1)
+            time.sleep(API_SLEEP)
         if pitcher_seasons:
             combined = pd.concat(pitcher_seasons, ignore_index=True)
             return mlbam_id, add_pitcher_rolling_features(combined)
         return mlbam_id, None
 
     with ThreadPoolExecutor(max_workers=MAX_API_WORKERS) as executor:
-        futures = {executor.submit(_fetch_pitcher, pid): pid for pid in qualified}
+        futures = {executor.submit(_fetch_pitcher, pid): pid for pid in remaining}
         for i, future in enumerate(
             tqdm(
                 as_completed(futures), total=len(futures), desc="Loading pitcher data"
@@ -594,6 +628,15 @@ def build_pitcher_dict(
             mlbam_id, result = future.result()
             if result is not None:
                 pitcher_dict[mlbam_id] = result
+
+            # save checkpoint every 50 pitchers
+            if i % 50 == 0:
+                with open(checkpoint_path, "wb") as f:
+                    pickle.dump(pitcher_dict, f)
+
+    # clean up checkpoint on successful completion
+    if os.path.exists(checkpoint_path):
+        os.remove(checkpoint_path)
 
     print(f"Done — pulled data for {len(pitcher_dict)} pitchers")
     return pitcher_dict
