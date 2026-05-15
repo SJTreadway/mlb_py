@@ -73,7 +73,16 @@ FEATURE_COLS = [
     "opp_FB_perc_35",
     "opp_FB_perc_75",
     "park_hr_factor",
-    "batting_slot",
+    "bat_speed_30",
+    "bat_speed_75",
+    "bat_speed_162",
+    "est_woba_30",
+    "est_woba_75",
+    "est_woba_162",
+    "est_slg_30",
+    "est_slg_75",
+    "est_slg_162",
+    "age",
 ]
 
 PARK_HR_FACTORS = {
@@ -203,6 +212,29 @@ def transform_statcast_to_game_level(df):
         # contact quality — batted ball rows only
         batted = pa_endings[pa_endings["launch_speed"].notna()].copy()
 
+        # bat speed — average over all swings in the game
+        bat_speed_vals = group["bat_speed"].dropna()
+        bat_speed = float(bat_speed_vals.mean()) if not bat_speed_vals.empty else np.nan
+
+        # age — consistent within a game so just take first value
+        age = (
+            float(group["age_bat"].dropna().iloc[0])
+            if group["age_bat"].notna().any()
+            else np.nan
+        )
+
+        # estimated woba and slg — on batted balls only
+        est_woba = (
+            float(batted["estimated_woba_using_speedangle"].dropna().mean())
+            if not batted.empty
+            else np.nan
+        )
+        est_slg = (
+            float(batted["estimated_slg_using_speedangle"].dropna().mean())
+            if not batted.empty
+            else np.nan
+        )
+
         # pitcher data points
         p_throws = group["p_throws"].iloc[0] if "p_throws" in group.columns else ""
         stand = group["stand"].iloc[0] if "stand" in group.columns else ""
@@ -220,17 +252,15 @@ def transform_statcast_to_game_level(df):
             ((batted["launch_angle"] >= 8) & (batted["launch_angle"] <= 32)).sum()
         )
 
+        # in transform_statcast_to_game_level
+        n_swings = int(group["bat_speed"].notna().sum())
+
         # launch_speed_angle codes:
         # 6 = Barrel, 5 = Solid Contact, 4 = Flare/Burner,
         # 3 = Under, 2 = Topped, 1 = Weak
         barrels = int((batted["launch_speed_angle"] == 6).sum())
 
         stand = group["stand"].iloc[0] if "stand" in group.columns else ""
-        bp_vals = group["batting_order"].dropna()
-        batting_slot = int(bp_vals.mode().iloc[0]) if not bp_vals.empty else 0
-
-        print(list(group.columns))
-        print(group[["batting_order"]].value_counts(dropna=False).head())
 
         games.append(
             {
@@ -239,7 +269,6 @@ def transform_statcast_to_game_level(df):
                 "opponent": opponent,
                 "is_home": int(is_home),
                 "stand": stand,
-                "batting_slot": batting_slot,
                 "AB": ab,
                 "H": h,
                 "x2B": x2b,
@@ -262,6 +291,11 @@ def transform_statcast_to_game_level(df):
                 "AB_vs_R": ab if p_throws == "R" else 0,
                 "HR_vs_L": hr if p_throws == "L" else 0,
                 "AB_vs_L": ab if p_throws == "L" else 0,
+                "bat_speed": bat_speed,
+                "age": age,
+                "est_woba": est_woba,
+                "est_slg": est_slg,
+                "n_swings": n_swings,
             }
         )
 
@@ -366,6 +400,9 @@ def add_batter_rolling_features(df):
         "AB_vs_R",
         "HR_vs_L",
         "AB_vs_L",
+        "bat_speed",
+        "est_woba",
+        "est_slg",
     ]
 
     new_cols = {}
@@ -404,11 +441,13 @@ def add_batter_rolling_features(df):
         ab_r = g("AB_vs_R")
         hr_l = g("HR_vs_L")
         ab_l = g("AB_vs_L")
+        n_swings = g("n_swings")
 
         ab_denom = ab.replace(0, np.nan)
         ab_r_denom = ab_r.replace(0, np.nan)
         ab_l_denom = ab_l.replace(0, np.nan)
         pa_denom = (ab + bb + hbp + sf).replace(0, np.nan)
+        n_swings_denom = n_swings.replace(0, np.nan)
         batted_denom = bbd.replace(0, np.nan)
 
         df[f"HR_per_PA_{winsize}"] = hr / pa_denom
@@ -421,6 +460,9 @@ def add_batter_rolling_features(df):
         df[f"HARDHIT_{winsize}"] = hh / batted_denom
         df[f"SWSPOT_{winsize}"] = ss / batted_denom
         df[f"BARREL_{winsize}"] = bar / batted_denom
+        df[f"bat_speed_{winsize}"] = g("bat_speed") / n_swings_denom
+        df[f"est_woba_{winsize}"] = g("est_woba") / batted_denom
+        df[f"est_slg_{winsize}"] = g("est_slg") / batted_denom
 
     return df
 
@@ -451,7 +493,6 @@ def compute_training_rows(all_player_games, pitcher_dict):
                 "year": current.get("year", 0),
                 "opponent": current["opponent"],
                 "stand": current.get("stand", ""),
-                "batting_slot": current.get("batting_slot", 0),
                 "park_hr_factor": PARK_HR_FACTORS.get(
                     str(current.get("opponent", "")), 100
                 ),
@@ -471,6 +512,7 @@ def compute_training_rows(all_player_games, pitcher_dict):
                 row[f"HR_per_PA_vs_L_{winsize}"] = prior.get(
                     f"HR_per_PA_vs_L_{winsize}", np.nan
                 )
+                row["age"] = current.get("age", np.nan)
 
             rows.append(row)
 
