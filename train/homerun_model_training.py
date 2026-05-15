@@ -48,6 +48,12 @@ FEATURE_COLS = [
     "HR_per_PA_75",
     "HR_per_PA_162",
     "HR_per_PA_350",
+    "HR_per_PA_vs_R_30",
+    "HR_per_PA_vs_R_75",
+    "HR_per_PA_vs_R_162",
+    "HR_per_PA_vs_L_30",
+    "HR_per_PA_vs_L_75",
+    "HR_per_PA_vs_L_162",
     "SLG_30",
     "SLG_75",
     "OBP_30",
@@ -197,6 +203,12 @@ def transform_statcast_to_game_level(df):
         stand = group["stand"].iloc[0] if "stand" in group.columns else ""
         favorable_platoon = int(stand != p_throws and stand != "" and p_throws != "")
         opp_pitcher_id = int(group["pitcher"].iloc[0])
+        # this is from the BATTER's perspective
+        # group is all pitches the batter saw in that game
+        # so inning.min() == 1 means the batter faced this pitcher in inning 1
+        # which means the pitcher was starting
+        # we use <= 3 to help with case of batter not batting until after first inning
+        opp_is_starter = int(group["inning"].min() <= 3)
 
         n_batted = len(batted)
         ev_sum = float(batted["launch_speed"].sum())
@@ -244,6 +256,11 @@ def transform_statcast_to_game_level(df):
                 "p_throws": p_throws,
                 "favorable_platoon": favorable_platoon,
                 "opp_pitcher_id": opp_pitcher_id,
+                "opp_is_started": opp_is_starter,
+                "HR_vs_R": hr if p_throws == "R" else 0,
+                "AB_vs_R": ab if p_throws == "R" else 0,
+                "HR_vs_L": hr if p_throws == "L" else 0,
+                "AB_vs_L": ab if p_throws == "L" else 0,
             }
         )
 
@@ -319,6 +336,10 @@ def add_batter_rolling_features(df):
         "hard_hits",
         "sweet_spots",
         "batted_balls",
+        "HR_vs_R",
+        "AB_vs_R",
+        "HR_vs_L",
+        "AB_vs_L",
     ]
 
     new_cols = {}
@@ -353,6 +374,10 @@ def add_batter_rolling_features(df):
         hh = g("hard_hits")
         ss = g("sweet_spots")
         bar = g("barrels")
+        hr_r = g("HR_vs_R")
+        ab_r = g("AB_vs_R")
+        hr_l = g("HR_vs_L")
+        ab_l = g("AB_vs_L")
 
         ab_denom = ab.replace(0, np.nan)
         pa_denom = (ab + bb + hbp + sf).replace(0, np.nan)
@@ -366,6 +391,9 @@ def add_batter_rolling_features(df):
         df[f"HARDHIT_{winsize}"] = hh / batted_denom
         df[f"SWSPOT_{winsize}"] = ss / batted_denom
         df[f"BARREL_{winsize}"] = bar / batted_denom
+
+        df[f"HR_per_PA_vs_R_{winsize}"] = hr_r / ab_r.replace(0, np.nan)
+        df[f"HR_per_PA_vs_L_{winsize}"] = hr_l / ab_l.replace(0, np.nan)
 
     return df
 
@@ -405,10 +433,18 @@ def compute_training_rows(all_player_games, pitcher_dict):
                 **pitcher_feats,
             }
 
+            p_throws = str(current.get("p_throws", ""))
+
             for winsize in WINDOWS_BAT:
                 for stem in ["BARREL", "EV", "HARDHIT", "SWSPOT", "SLG", "OBP", "OBS"]:
                     row[f"{stem}_{winsize}"] = prior.get(f"{stem}_{winsize}", np.nan)
                 row[f"HR_per_PA_{winsize}"] = prior.get(f"HR_per_PA_{winsize}", np.nan)
+                row[f"HR_per_PA_vs_R_{winsize}"] = prior.get(
+                    f"HR_per_PA_vs_R_{winsize}", np.nan
+                )
+                row[f"HR_per_PA_vs_L_{winsize}"] = prior.get(
+                    f"HR_per_PA_vs_L_{winsize}", np.nan
+                )
 
             rows.append(row)
 
@@ -513,8 +549,9 @@ def build_pitcher_dict(all_player_games, start_year=START_YEAR, end_year=END_YEA
     # collect unique pitcher MLBAM IDs from batter game rows
     opp_pitcher_ids = set()
     for df in all_player_games.values():
-        if "opp_pitcher_id" in df.columns:
-            opp_pitcher_ids.update(df["opp_pitcher_id"].dropna().astype(int).unique())
+        if "opp_pitcher_id" in df.columns and "opp_is_starter" in df.columns:
+            starter_ids = df[df["opp_is_starter"] == 1]["opp_pitcher_id"]
+            opp_pitcher_ids.update(starter_ids.dropna().astype(int).unique())
 
     print(f"Pulling Statcast data for {len(opp_pitcher_ids)} pitchers...")
     pitcher_dict = {}
