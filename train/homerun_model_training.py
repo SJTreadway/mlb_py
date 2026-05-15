@@ -380,10 +380,14 @@ def add_batter_rolling_features(df):
         ab_l = g("AB_vs_L")
 
         ab_denom = ab.replace(0, np.nan)
+        ab_r_denom = ab_r.replace(0, np.nan)
+        ab_l_denom = ab_l.replace(0, np.nan)
         pa_denom = (ab + bb + hbp + sf).replace(0, np.nan)
         batted_denom = bbd.replace(0, np.nan)
 
         df[f"HR_per_PA_{winsize}"] = hr / pa_denom
+        df[f"HR_per_PA_vs_R_{winsize}"] = hr_r / ab_r_denom
+        df[f"HR_per_PA_vs_L_{winsize}"] = hr_l / ab_l_denom
         df[f"SLG_{winsize}"] = (h + x2b + 2 * x3b + 3 * hr) / ab_denom
         df[f"OBP_{winsize}"] = (h + bb + hbp) / pa_denom
         df[f"OBS_{winsize}"] = df[f"SLG_{winsize}"] + df[f"OBP_{winsize}"]
@@ -391,9 +395,6 @@ def add_batter_rolling_features(df):
         df[f"HARDHIT_{winsize}"] = hh / batted_denom
         df[f"SWSPOT_{winsize}"] = ss / batted_denom
         df[f"BARREL_{winsize}"] = bar / batted_denom
-
-        df[f"HR_per_PA_vs_R_{winsize}"] = hr_r / ab_r.replace(0, np.nan)
-        df[f"HR_per_PA_vs_L_{winsize}"] = hr_l / ab_l.replace(0, np.nan)
 
     return df
 
