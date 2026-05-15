@@ -36,6 +36,10 @@ run:
 test-failed:
 	python3.11 -m pytest tests/ --lf
 
+# Train Homerun Model
+train-hr:
+	python3.11 train/homerun_model_training.py
+
 # Help
 help:
 	@echo "Available commands:"

@@ -36,9 +36,9 @@ def process_batting_data(df):
     load_batting_data(batter_ids)
 
     # step 4: add in all batting feature
-    bat_df = get_batting_feats(df, batter_ids, pos_map)
+    bat_df, batter_data_dict = get_batting_feats(df, batter_ids, pos_map)
 
-    return get_lineup_averages(bat_df)
+    return get_lineup_averages(bat_df), batter_data_dict
 
 
 def load_batting_data(batter_ids):
@@ -116,6 +116,16 @@ def transform_statcast_batter(df):
         pa_endings["runs_scored"] = (
             pa_endings["post_bat_score"] - pa_endings["bat_score"]
         )
+
+        # contact quality - only on batted ball events
+        batted = pa_endings[pa_endings["launch_speed"].notna()].copy()
+        batted_balls = len(batted)
+        ev_sum = batted["launch_speed"].sum()  # store sum for weighted rolling avg
+        hard_hits = len(batted[batted["launch_speed"] >= 95])
+        sweet_spots = len(
+            batted[(batted["launch_angle"] >= 8) & (batted["launch_angle"] <= 32)]
+        )
+        barrels = int(batted["barrel"].sum()) if "barrel" in batted.columns else 0
 
         is_home = group["inning_topbot"].iloc[0] == "Bot"
         at_vs = "VS" if is_home else "AT"
@@ -198,6 +208,11 @@ def transform_statcast_batter(df):
                 "AVG": 0.0,
                 "OBP": 0.0,
                 "SLG": 0.0,
+                "batted_balls": batted_balls,
+                "ev_sum": ev_sum,
+                "hard_hits": hard_hits,
+                "sweet_spots": sweet_spots,
+                "barrels": barrels,
             }
         )
 
@@ -290,6 +305,11 @@ def process_batter_df(b_id, pos_map):
                 "SO",
                 "SB",
                 "CS",
+                "batted_balls",
+                "ev_sum",
+                "hard_hits",
+                "sweet_spots",
+                "barrels",
             ]:
                 new_col = "rollsum_" + raw_col + "_" + suff
                 new_columns[new_col] = roll_column(batter_df, raw_col, winsize)
@@ -302,6 +322,13 @@ def process_batter_df(b_id, pos_map):
             slgmod_def = dict_def[pos]["slgmod"]
             so_bat_perc_def = dict_def[pos]["sobat"]
 
+            # statcast batting defaults based on league average
+            batted_per_game_def = 2
+            ev_def = 88.0
+            hh_def = 0.38
+            swspot_def = 0.34
+            barrel_def = 0.08
+
             # Columns created by aggregation above
             ab_col = "rollsum_AB_" + str(winsize)
             h_col = "rollsum_H_" + str(winsize)
@@ -311,6 +338,11 @@ def process_batter_df(b_id, pos_map):
             trip_col = "rollsum_x3B_" + str(winsize)
             hr_col = "rollsum_HR_" + str(winsize)
             so_col = "rollsum_SO_" + str(winsize)
+            batted_col = "rollsum_batted_balls_" + str(winsize)
+            ev_col = "rollsum_ev_sum_" + str(winsize)
+            hh_col = "rollsum_hard_hits_" + str(winsize)
+            ss_col = "rollsum_sweet_spots_" + str(winsize)
+            bar_col = "rollsum_barrels_" + str(winsize)
 
             # Calculate intermediate values
             abmod_col = "ABmod_" + str(winsize)
@@ -325,6 +357,10 @@ def process_batter_df(b_id, pos_map):
             so_bat_perc_col = "SObat_perc_" + str(winsize)
             obp_col = "OBP_" + str(winsize)
             obs_col = "OBS_" + str(winsize)
+            batted_mod = np.maximum(
+                new_columns[batted_col], winsize * batted_per_game_def
+            )
+            fake_batted = batted_mod - new_columns[batted_col]
 
             # calculate BATAVG, with smoothing for low AB numbers
             abmod = np.maximum(new_columns[ab_col], winsize * ab_per_game_def)
@@ -376,6 +412,20 @@ def process_batter_df(b_id, pos_map):
 
             # calculate OBS
             new_columns[obs_col] = new_columns[obp_col] + new_columns[slg_col]
+
+            # calculate statcast batting feats
+            new_columns["EV_" + str(winsize)] = (
+                new_columns[ev_col] + fake_batted * ev_def
+            ) / batted_mod
+            new_columns["HARDHIT_" + str(winsize)] = (
+                new_columns[hh_col] + fake_batted * hh_def
+            ) / batted_mod
+            new_columns["SWSPOT_" + str(winsize)] = (
+                new_columns[ss_col] + fake_batted * swspot_def
+            ) / batted_mod
+            new_columns["BARREL_" + str(winsize)] = (
+                new_columns[bar_col] + fake_batted * barrel_def
+            ) / batted_mod
 
         # Concatenate all new columns at once to avoid fragmentation
         if new_columns:
@@ -437,7 +487,18 @@ def get_batting_feats(df, batter_ids, pos_map):
                 print(f"Error processing batter file for {b_id}: {e}")
                 batter_data_dict[b_id] = None
     new_col_dict = {}
-    colstems = ["BATAVG", "OBP", "SLG", "OBS", "SLGmod", "SObat_perc"]
+    colstems = [
+        "BATAVG",
+        "OBP",
+        "SLG",
+        "OBS",
+        "SLGmod",
+        "SObat_perc",
+        "EV",
+        "HARDHIT",
+        "SWSPOT",
+        "BARREL",
+    ]
     new_col_list = [
         stem + "_" + str(winsize) + "_b" + str(i) + hv
         for stem in colstems
@@ -489,7 +550,7 @@ def get_batting_feats(df, batter_ids, pos_map):
                     print(f"batter not found for {curr_b_id}")
     for key, val in new_col_dict.items():
         df[key] = val
-    return df
+    return df, batter_data_dict
 
 
 def get_lineup_averages(df):

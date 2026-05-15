@@ -4,6 +4,8 @@ import os
 import math
 import warnings
 
+from train.homerun_model_training import train_model
+
 # Silence all performance warnings
 warnings.simplefilter("ignore", category=UserWarning)
 warnings.simplefilter("ignore", category=FutureWarning)
@@ -29,6 +31,8 @@ from api.odds import (
 )
 from api.pitchers_v2 import process_pitching_data
 from api.batters_v2 import process_batting_data
+from api.weather import process_weather_data
+from api.homerun import process_homerun_data
 
 from cleanup import cleanup_directory
 
@@ -38,6 +42,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+REFRESH_DATA = 1
 DISPLAY_EDGE_ONLY = 1
 EDGE_THRESHOLD = 4.0
 
@@ -51,12 +56,10 @@ BEARER_TOKEN = os.environ["X_BEARER_TOKEN"]
 # Flags for Settings
 TOMORROW_GAMES = int(os.environ["TOMORROW_GAMES"])
 
-# Causes data pull even if file exists
-REFRESH_DATA = int(os.environ["REFRESH_DATA"])
-
 # Model file locations
 WINS_MODEL_FILE = "models/win_model_2026v1.pkl"
 RUNS_MODEL_FILE = "models/runs_scored_model_v1.pkl"
+HR_MODEL_FILE = "models/homerun_model_2026v1.pkl"
 
 # Set of features we will predict on
 RUNS_SCORED_FEAT_SET = [
@@ -136,6 +139,40 @@ HOME_VICTORY_FEAT_SET = [
     "lineup9_SLG_75_v",
 ]
 
+HR_FEAT_SET = [
+    "BARREL_30",
+    "BARREL_75",
+    "BARREL_162",
+    "EV_30",
+    "EV_75",
+    "EV_162",
+    "HARDHIT_30",
+    "HARDHIT_75",
+    "HARDHIT_162",
+    "SWSPOT_30",
+    "SWSPOT_75",
+    "SWSPOT_162",
+    "HR_per_PA_30",
+    "HR_per_PA_75",
+    "HR_per_PA_162",
+    "HR_per_PA_350",
+    "SLG_30",
+    "SLG_75",
+    "OBP_30",
+    "OBP_75",
+    "OBS_30",
+    "OBS_75",
+    "opp_HR_per_BF_10",
+    "opp_HR_per_BF_35",
+    "opp_HR_per_BF_75",
+    "opp_FB_perc_10",
+    "opp_FB_perc_35",
+    "opp_FB_perc_75",
+    "park_hr_factor",
+    "favorable_platoon",
+    "batting_slot",
+]
+
 
 def predict_winner(X):
     with open(WINS_MODEL_FILE, "rb") as pickle_file:
@@ -149,6 +186,13 @@ def predict_runs_scored(X):
     with open(RUNS_MODEL_FILE, "rb") as pickle_file:
         model = pickle.load(pickle_file)
     probs = model.predict_proba(X)
+    return probs
+
+
+def predict_homerun_hitter(X):
+    with open(HR_MODEL_FILE, "rb") as pickle_file:
+        model = pickle.load(pickle_file)
+    probs = model.predict_proba(X)[:, 1]
     return probs
 
 
@@ -197,6 +241,8 @@ def print_todays_home_victory_preds(df):
         columns={
             "date_dblhead": "Date",
             "game_time": "Time",
+            "temp": "Temp",
+            "humidity": "Humidity",
             "team_h_full": "Home",
             "team_v_full": "Visitor",
             "starting_pitcher_name_h": "Probable Starter (H)",
@@ -212,6 +258,8 @@ def print_todays_home_victory_preds(df):
     cols = [
         "Date",
         "Time",
+        "Temp",
+        "Humidity",
         "Visitor",
         "Probable Starter (V)",
         "Home",
@@ -225,11 +273,48 @@ def print_todays_home_victory_preds(df):
     print(f"\n{filtered_df.loc[:,cols]}")
 
 
+def print_todays_homerun_preds(df):
+    print(df)
+    filtered_df = df.copy()
+    filtered_df = filtered_df.rename(
+        columns={
+            "date_dblhead": "Date",
+            "game_time": "Time",
+            "temp": "Temp",
+            "humidity": "Humidity",
+            "b_id": "Player",
+            "team": "Team",
+            "opponent": "Opponent",
+            "park_hr_factor": "Park HR Factor",
+            "favorable_platoon": "Platoon",
+            "slot": "Batting Slot",
+            "hit_hr": "Prediction",
+        }
+    )
+    filtered_df.sort_values("Date", ascending=True, inplace=True)
+    cols = [
+        "Date",
+        "Time",
+        "Temp",
+        "Humidity",
+        "Player",
+        "Team",
+        "Opponent",
+        "Park HR Factor",
+        "Platoon",
+        "Batting Slot",
+        "Prediction",
+    ]
+    print(f"\n{filtered_df.loc[:,cols]}")
+
+
 def print_todays_totals_preds(df):
     df = df.rename(
         columns={
             "date_dblhead": "Date",
             "game_time": "Time",
+            "temp": "Temp",
+            "humidity": "Humidity",
             "team_h_full": "Home",
             "team_v_full": "Visitor",
             "over_under_line": "O/U Line",
@@ -242,6 +327,8 @@ def print_todays_totals_preds(df):
     cols = [
         "Date",
         "Time",
+        "Temp",
+        "Humidity",
         "Visitor",
         "Home",
         "O/U Line",
@@ -252,7 +339,7 @@ def print_todays_totals_preds(df):
     print(f"\n{df.loc[:,cols]}")
 
 
-def lambda_handler(event, context):
+def handler(event, context):
     print("--- TIME TO COOK 👨🏻‍🍳 ⚾️ 🚀 💰 ---")
 
     RUN_DATE = date.today() if TOMORROW_GAMES == 0 else date.today() + timedelta(days=1)
@@ -266,17 +353,20 @@ def lambda_handler(event, context):
     if os.path.exists(fname) and REFRESH_DATA != 1:
         print(f"\nLoading Data From File: {fname}")
         lineup_w_pitching_batting_df = pd.read_csv(fname, index_col=False)
+
     else:
         print("\nLoading Lineup Data")
         df = get_lineups()
 
-        # Get/Store Starting Pitching Data to Files
+        # Add Pitching Data
         print("\nLoading Pitching Data")
-        lineup_w_pitching_df = process_pitching_data(df)
+        lineup_w_pitching_df, pitcher_data_dict = process_pitching_data(df)
 
         # Add Batting Data
         print("\nLoading Batting Data")
-        lineup_w_pitching_batting_df = process_batting_data(lineup_w_pitching_df)
+        lineup_w_pitching_batting_df, batter_data_dict = process_batting_data(
+            lineup_w_pitching_df
+        )
 
         print(f"\nSaving Lineup Data to CSV")
         lineup_w_pitching_batting_df.to_csv(fname, index=False)
@@ -286,19 +376,25 @@ def lambda_handler(event, context):
         lineup_w_pitching_batting_df
     )
 
+    # Add Weather Data
+    print("\nLoading Weather Data")
+    lineup_w_pitching_batting_team_weather_df = process_weather_data(
+        lineup_w_pitching_batting_team_df
+    )
+
     print(f"\nGetting Features for Run Total Predictions")
-    df_runs = get_run_total_feats(lineup_w_pitching_batting_team_df)
+    df_runs = get_run_total_feats(lineup_w_pitching_batting_team_weather_df)
     df_runs.drop_duplicates(subset=["date_dblhead", "team_h", "team_v"], inplace=True)
     df_runs.reset_index(drop=True, inplace=True)
 
     print(f"\nGetting Odds Data")
-    lineup_w_pitching_batting_team_df["moneyline_h"] = (
-        lineup_w_pitching_batting_team_df.apply(
+    lineup_w_pitching_batting_team_weather_df["moneyline_h"] = (
+        lineup_w_pitching_batting_team_weather_df.apply(
             lambda row: get_money_line_price(row["team_h_full"]), axis=1
         )
     )
-    lineup_w_pitching_batting_team_df["moneyline_v"] = (
-        lineup_w_pitching_batting_team_df.apply(
+    lineup_w_pitching_batting_team_weather_df["moneyline_v"] = (
+        lineup_w_pitching_batting_team_weather_df.apply(
             lambda row: get_money_line_price(row["team_v_full"]), axis=1
         )
     )
@@ -315,22 +411,22 @@ def lambda_handler(event, context):
 
     print(f"\nMaking Predictions")
     (
-        lineup_w_pitching_batting_team_df["home_victory"],
-        lineup_w_pitching_batting_team_df["prob"],
+        lineup_w_pitching_batting_team_weather_df["home_victory"],
+        lineup_w_pitching_batting_team_weather_df["prob"],
     ) = predict_winner(lineup_w_pitching_batting_df.loc[:, HOME_VICTORY_FEAT_SET])
 
     # do not believe these fields are needed in output
-    # lineup_w_pitching_batting_team_df['moneyline_value_line_h'] = lineup_w_pitching_batting_team_df.apply(lambda row: line_to_bet(row['prob']), axis=1)
-    # lineup_w_pitching_batting_team_df['moneyline_value_line_v'] = lineup_w_pitching_batting_team_df.apply(lambda row: line_to_bet(1 - row['prob']), axis=1)
+    # lineup_w_pitching_batting_team_weather_df['moneyline_value_line_h'] = lineup_w_pitching_batting_team_weather_df.apply(lambda row: line_to_bet(row['prob']), axis=1)
+    # lineup_w_pitching_batting_team_weather_df['moneyline_value_line_v'] = lineup_w_pitching_batting_team_weather_df.apply(lambda row: line_to_bet(1 - row['prob']), axis=1)
 
     # calculate our edge
-    lineup_w_pitching_batting_team_df["edge_h"] = (
-        lineup_w_pitching_batting_team_df.apply(
+    lineup_w_pitching_batting_team_weather_df["edge_h"] = (
+        lineup_w_pitching_batting_team_weather_df.apply(
             lambda row: calculate_edge(row["prob"], row["moneyline_h"]), axis=1
         )
     )
-    lineup_w_pitching_batting_team_df["edge_v"] = (
-        lineup_w_pitching_batting_team_df.apply(
+    lineup_w_pitching_batting_team_weather_df["edge_v"] = (
+        lineup_w_pitching_batting_team_weather_df.apply(
             lambda row: calculate_edge(1 - row["prob"], row["moneyline_v"]), axis=1
         )
     )
@@ -341,17 +437,25 @@ def lambda_handler(event, context):
         axis=1,
     )
 
-    lineup_w_pitching_batting_team_df.reset_index(drop=True, inplace=True)
-    print_todays_home_victory_preds(lineup_w_pitching_batting_team_df)
+    lineup_w_pitching_batting_team_weather_df.reset_index(drop=True, inplace=True)
+    print_todays_home_victory_preds(lineup_w_pitching_batting_team_weather_df)
+
+    hr_df = process_homerun_data(
+        lineup_w_pitching_batting_team_weather_df,
+        batter_data_dict,
+        pitcher_data_dict,
+    )
+    hr_probs = predict_homerun_hitter(hr_df.loc[:, HR_FEAT_SET])
+    # print_todays_homerun_preds(hr_df)
 
     # not printing df output until o/u preds are fixed
     # print_todays_totals_preds(df_runs)
 
-    # print(f'\nHOME VICTORY FEATS:\n{lineup_w_pitching_batting_team_df.loc[:, HOME_VICTORY_FEAT_SET]}')
+    # print(f'\nHOME VICTORY FEATS:\n{lineup_w_pitching_batting_team_weather_df.loc[:, HOME_VICTORY_FEAT_SET]}')
     # print(f'\nRUNS SCORED FEATS:\n{df_runs.loc[:, RUNS_SCORED_FEAT_SET]}')
 
     print(f"\nSaving Predictions DataFrames to CSV")
-    lineup_w_pitching_batting_team_df.loc[
+    lineup_w_pitching_batting_team_weather_df.loc[
         :,
         [
             "date_dblhead",
@@ -365,6 +469,7 @@ def lambda_handler(event, context):
             "edge_v",
         ],
     ].to_csv(f"data/results/{RUN_DATE}_home_victory_preds.csv", index=False)
+    """
     df_runs.loc[
         :,
         [
@@ -376,10 +481,12 @@ def lambda_handler(event, context):
             "total_runs_predicted",
         ],
     ].to_csv(f"data/results/{RUN_DATE}_run_total_preds.csv", index=False)
+    """
+    hr_df.to_csv(f"data/results/{RUN_DATE}_homerun_preds.csv", index=False)
 
     # post_to_X()
     return {}
 
 
 if __name__ == "__main__":
-    lambda_handler({}, {})
+    handler({}, {})

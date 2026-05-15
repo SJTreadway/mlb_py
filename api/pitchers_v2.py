@@ -15,7 +15,7 @@ WINDOWS = [10, 35, 75]
 MAX_API_WORKERS = int(os.environ.get("MAX_API_WORKERS", "8"))
 
 
-def process_pitching_data(df, debug=False):
+def process_pitching_data(df):
     """
     Process pitching data using pybaseball API instead of web scraping.
 
@@ -34,10 +34,12 @@ def process_pitching_data(df, debug=False):
     load_pitching_data(start_pitchers_all)
 
     # step 2: load data from files and store into dataframe
-    strt_pitch_df = get_rolling_pitching_feats(df, start_pitchers_all)
+    strt_pitch_df, pitcher_data_dict = get_rolling_pitching_feats(
+        df, start_pitchers_all
+    )
 
-    # step 3: add bullpen features with optional debug mode
-    return get_bullpen_data(strt_pitch_df, debug=debug)
+    # step 3: add bullpen features
+    return get_bullpen_data(strt_pitch_df), pitcher_data_dict
 
 
 def load_pitching_data(start_pitchers_all):
@@ -118,6 +120,10 @@ def transform_statcast_pitcher(df):
         pa_endings["runs_scored"] = (
             pa_endings["post_bat_score"] - pa_endings["bat_score"]
         )
+
+        batted = pa_endings[pa_endings["launch_speed"].notna()].copy()
+        fly_balls = len(batted[batted["bb_type"] == "fly_ball"])
+        batted_balls = len(batted)
 
         is_home_pitcher = group["inning_topbot"].iloc[0] == "Top"
         at_vs = "VS" if is_home_pitcher else "AT"
@@ -204,6 +210,9 @@ def transform_statcast_pitcher(df):
                 "W": 0,
                 "L": 0,
                 "ERA": 0.0,
+                "fly_balls": fly_balls,
+                "batted_balls_allowed": batted_balls,
+                "throws": group["p_throws"].iloc[0],
             }
         )
 
@@ -304,6 +313,8 @@ def load_and_process_pitch_df(p_id, filepath=""):
         "BK",
         "x2B",
         "x3B",
+        "fly_balls",
+        "batted_balls_allowed",
     ]
     for winsize in WINDOWS:
         for raw_col in cols_to_agg:
@@ -326,7 +337,11 @@ def load_and_process_pitch_df(p_id, filepath=""):
         h_bb_col = "H_BB_roll_" + str(winsize)
         double_col = "rollsum_x2B_" + str(winsize)
         triple_col = "rollsum_x3B_" + str(winsize)
+        fb_col = "rollsum_fly_balls_" + str(winsize)
+        fb_perc_col = "FB_perc_" + str(winsize)
+        batted_col = "rollsum_batted_balls_allowed_" + str(winsize)
         hr_col = "rollsum_HR_" + str(winsize)
+        hr_per_bf_col = "HR_per_BF_" + str(winsize)
         xb_col = "XB_roll_" + str(winsize)
         tb_col = "TB_roll_" + str(winsize)
         so_col = "rollsum_SO_" + str(winsize)
@@ -350,6 +365,11 @@ def load_and_process_pitch_df(p_id, filepath=""):
         h_bb_mod2_col = "H_BB_mod2_" + str(winsize)
         tb_bb_mod_col = "TB_BB_mod_" + str(winsize)
         tb_bb_perc_col = "TB_BB_perc_" + str(winsize)
+
+        batted_denom = np.where(
+            new_columns[batted_col] == 0, np.nan, new_columns[batted_col]
+        )
+        bf_denom = np.where(new_columns[bf_col] == 0, np.nan, new_columns[bf_col])
 
         # Calculate values using the new_columns dictionary
         h_bb = new_columns[hit_col] + new_columns[bb_col]
@@ -393,6 +413,8 @@ def load_and_process_pitch_df(p_id, filepath=""):
         new_columns[so_perc_col] = so_mod / bf_mod
         new_columns[tb_bb_perc_col] = tb_bb_mod / bf_mod
         new_columns[h_bb_perc_col] = h_bb_mod2 / bf_mod
+        new_columns[fb_perc_col] = new_columns[fb_col] / batted_denom
+        new_columns[hr_per_bf_col] = new_columns[hr_col] / bf_denom
 
     # Concatenate all new columns at once to avoid fragmentation
     if new_columns:
@@ -579,7 +601,7 @@ def get_rolling_pitching_feats(df, start_pitchers_all):
         new_df = pd.DataFrame(col_add_dict, index=df.index)
         df = pd.concat([df, new_df], axis=1)
 
-    return df
+    return df, pitcher_data_dict
 
 
 def get_bullpen_team_df(team, df, debug=False):
