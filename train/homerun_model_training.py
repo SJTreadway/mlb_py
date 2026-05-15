@@ -226,12 +226,11 @@ def transform_statcast_to_game_level(df):
         barrels = int((batted["launch_speed_angle"] == 6).sum())
 
         stand = group["stand"].iloc[0] if "stand" in group.columns else ""
-        bp_vals = (
-            group["batting_order"].dropna()
-            if "batting_order" in group.columns
-            else pd.Series(dtype=float)
-        )
-        batting_slot = int(bp_vals.iloc[0]) if not bp_vals.empty else 0
+        bp_vals = group["batting_order"].dropna()
+        batting_slot = int(bp_vals.mode().iloc[0]) if not bp_vals.empty else 0
+
+        print(list(group.columns))
+        print(group[["batting_order"]].value_counts(dropna=False).head())
 
         games.append(
             {
@@ -332,12 +331,8 @@ def build_all_player_games(start_year=START_YEAR, end_year=END_YEAR, min_pa=MIN_
                 with open(checkpoint_path, "wb") as f:
                     pickle.dump(all_player_games, f)
 
-    # clean up checkpoint on successful completion
-    if os.path.exists(checkpoint_path):
-        os.remove(checkpoint_path)
-
     print(f"Done — pulled data for {len(all_player_games)} players")
-    return all_player_games
+    return all_player_games, checkpoint_path
 
 
 # ── Rolling Feature Computation ───────────────────────────────────────────────
@@ -575,26 +570,47 @@ def pull_statcast_for_pitcher_year(mlbam_id, year):
         return None
 
 
-def build_pitcher_dict(
-    all_player_games, start_year=START_YEAR, end_year=END_YEAR, min_starts=5
-):
-    """Pull Statcast data for all opposing pitchers found in batter games."""
-    checkpoint_path = CACHE_PATH.replace(".csv", "_pitcher_checkpoint.pkl")
-    # collect qualified starter ids
-    opp_pitcher_ids = {}
-    for df in all_player_games.values():
-        if "opp_pitcher_id" in df.columns and "opp_is_starter" in df.columns:
-            starters = (
-                df[df["opp_is_starter"] == 1]["opp_pitcher_id"].dropna().astype(int)
-            )
-            for pid in starters:
-                opp_pitcher_ids[pid] = opp_pitcher_ids.get(pid, 0) + 1
+def get_qualified_starter_ids(min_gs=10, start_year=START_YEAR, end_year=END_YEAR):
+    """Get MLBAM IDs for pitchers with significant starts from MLB Stats API."""
+    all_ids = set()
+    for year in range(start_year, end_year + 1):
+        try:
+            url = "https://statsapi.mlb.com/api/v1/stats"
+            params = {
+                "stats": "season",
+                "group": "pitching",
+                "season": year,
+                "playerPool": "All",
+                "limit": 1000,
+            }
+            resp = requests.get(url, params=params, timeout=15)
+            resp.raise_for_status()
+            splits = resp.json()["stats"][0]["splits"]
+            ids = [
+                s["player"]["id"]
+                for s in splits
+                if s.get("stat", {}).get("gamesStarted", 0) >= min_gs
+            ]
+            all_ids.update(ids)
+            print(f"  {year}: {len(ids)} qualified starters")
+        except Exception as e:
+            print(f"  Error fetching {year}: {e}")
+    return all_ids
 
-    qualified = {pid for pid, count in opp_pitcher_ids.items() if count >= min_starts}
-    print(f"{len(qualified)} qualified starting pitchers (min {min_starts} starts)")
+
+def build_pitcher_dict(start_year=START_YEAR, end_year=END_YEAR, min_gs=10):
+    checkpoint_path = CACHE_PATH.replace(".csv", "_pitcher_checkpoint.pkl")
+
+    print("Fetching qualified starter list from MLB Stats API...")
+    qualified = get_qualified_starter_ids(
+        min_gs=min_gs, start_year=start_year, end_year=end_year
+    )
+    print(f"{len(qualified)} qualified starting pitchers")
 
     # resume from checkpoint if exists
     if os.path.exists(checkpoint_path):
+        import pickle
+
         with open(checkpoint_path, "rb") as f:
             pitcher_dict = pickle.load(f)
         print(f"Resumed from checkpoint — {len(pitcher_dict)} pitchers already pulled")
@@ -629,17 +645,11 @@ def build_pitcher_dict(
             if result is not None:
                 pitcher_dict[mlbam_id] = result
 
-            # save checkpoint every 50 pitchers
             if i % 50 == 0:
                 with open(checkpoint_path, "wb") as f:
                     pickle.dump(pitcher_dict, f)
 
-    # clean up checkpoint on successful completion
-    if os.path.exists(checkpoint_path):
-        os.remove(checkpoint_path)
-
-    print(f"Done — pulled data for {len(pitcher_dict)} pitchers")
-    return pitcher_dict
+    return pitcher_dict, checkpoint_path
 
 
 # ── Pitcher Feature Lookup ────────────────────────────────────────────────────
@@ -807,15 +817,15 @@ if __name__ == "__main__":
         print(f"Loaded {len(hr_df):,} rows")
     else:
         print("No cache found — pulling from Statcast...")
-        all_player_games = build_all_player_games(
+        all_player_games, b_ckpt = build_all_player_games(
             start_year=START_YEAR,
             end_year=END_YEAR,
             min_pa=MIN_PA,
         )
 
         print("\nPulling pitcher data...")
-        pitcher_dict = build_pitcher_dict(
-            all_player_games, start_year=START_YEAR, end_year=END_YEAR
+        pitcher_dict, p_ckpt = build_pitcher_dict(
+            start_year=START_YEAR, end_year=END_YEAR, min_gs=10
         )
 
         hr_df = compute_training_rows(all_player_games, pitcher_dict)
@@ -824,6 +834,12 @@ if __name__ == "__main__":
         os.makedirs(os.path.dirname(CACHE_PATH), exist_ok=True)
         hr_df.to_csv(CACHE_PATH, index=False)
         print(f"Cached to {CACHE_PATH}")
+
+        # now safe to clean up checkpoints
+        for ckpt in [b_ckpt, p_ckpt]:
+            if os.path.exists(ckpt):
+                os.remove(ckpt)
+        print("Checkpoints cleaned up")
 
     check_feature_coverage(hr_df)
     model = train_model(hr_df)
