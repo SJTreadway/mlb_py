@@ -256,7 +256,7 @@ def transform_statcast_to_game_level(df):
                 "p_throws": p_throws,
                 "favorable_platoon": favorable_platoon,
                 "opp_pitcher_id": opp_pitcher_id,
-                "opp_is_started": opp_is_starter,
+                "opp_is_starter": opp_is_starter,
                 "HR_vs_R": hr if p_throws == "R" else 0,
                 "AB_vs_R": ab if p_throws == "R" else 0,
                 "HR_vs_L": hr if p_throws == "L" else 0,
