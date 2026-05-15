@@ -8,6 +8,8 @@ import time
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from tqdm import tqdm
 
 from pybaseball import (
     statcast_batter,
@@ -23,6 +25,8 @@ import joblib
 
 CACHE_PATH = "data/hr_training_data.csv"
 MODEL_PATH = "models/homerun_model_2026v1.pkl"
+
+MAX_API_WORKERS = int(os.environ.get("MAX_API_WORKERS", "8"))
 
 START_YEAR = 2020
 END_YEAR = 2024
@@ -205,8 +209,7 @@ def transform_statcast_to_game_level(df):
         # group is all pitches the batter saw in that game
         # so inning.min() == 1 means the batter faced this pitcher in inning 1
         # which means the pitcher was starting
-        # we use <= 3 to help with case of batter not batting until after first inning
-        opp_is_starter = int(group["inning"].min() <= 3)
+        opp_is_starter = int(group["inning"].min() == 1)
 
         n_batted = len(batted)
         ev_sum = float(batted["launch_speed"].sum())
@@ -284,9 +287,8 @@ def build_all_player_games(start_year=START_YEAR, end_year=END_YEAR, min_pa=MIN_
     print(f"{len(mlbam_ids)} unique players found")
 
     all_player_games = {}
-    total = len(mlbam_ids)
 
-    for idx, mlbam_id in enumerate(mlbam_ids, 1):
+    def _fetch_batter(mlbam_id):
         player_seasons = []
         for year in range(start_year, end_year + 1):
             gdf = pull_statcast_for_player_year(mlbam_id, year)
@@ -295,12 +297,19 @@ def build_all_player_games(start_year=START_YEAR, end_year=END_YEAR, min_pa=MIN_
                 gdf["mlbam_id"] = mlbam_id
                 player_seasons.append(gdf)
             time.sleep(0.1)
-
         if player_seasons:
-            all_player_games[mlbam_id] = pd.concat(player_seasons, ignore_index=True)
+            combined = pd.concat(player_seasons, ignore_index=True)
+            return mlbam_id, combined
+        return mlbam_id, None
 
-        if idx % 25 == 0:
-            print(f"  {idx}/{total} players pulled...")
+    with ThreadPoolExecutor(max_workers=MAX_API_WORKERS) as executor:
+        futures = {executor.submit(_fetch_batter, mid): mid for mid in mlbam_ids}
+        for future in tqdm(
+            as_completed(futures), total=len(futures), desc="Loading batter data"
+        ):
+            mlbam_id, result = future.result()
+            if result is not None:
+                all_player_games[mlbam_id] = result
 
     print(f"Done — pulled data for {len(all_player_games)} players")
     return all_player_games
@@ -541,20 +550,27 @@ def pull_statcast_for_pitcher_year(mlbam_id, year):
         return None
 
 
-def build_pitcher_dict(all_player_games, start_year=START_YEAR, end_year=END_YEAR):
+def build_pitcher_dict(
+    all_player_games, start_year=START_YEAR, end_year=END_YEAR, min_starts=5
+):
     """Pull Statcast data for all opposing pitchers found in batter games."""
     # collect unique pitcher MLBAM IDs from batter game rows
     opp_pitcher_ids = set()
     for df in all_player_games.values():
         if "opp_pitcher_id" in df.columns and "opp_is_starter" in df.columns:
-            starter_ids = df[df["opp_is_starter"] == 1]["opp_pitcher_id"]
-            opp_pitcher_ids.update(starter_ids.dropna().astype(int).unique())
+            starters = (
+                df[df["opp_is_starter"] == 1]["opp_pitcher_id"].dropna().astype(int)
+            )
+            for pid in starters:
+                opp_pitcher_ids[pid] = opp_pitcher_ids.get(pid, 0) + 1
+    # only pull pitchers with enough starts
+    qualified = {pid for pid, count in opp_pitcher_ids.items() if count >= min_starts}
+    print(f"{len(qualified)} qualified starting pitchers (min {min_starts} starts)")
 
     print(f"Pulling Statcast data for {len(opp_pitcher_ids)} pitchers...")
     pitcher_dict = {}
-    total = len(opp_pitcher_ids)
 
-    for idx, mlbam_id in enumerate(opp_pitcher_ids, 1):
+    def _fetch_pitcher(mlbam_id):
         pitcher_seasons = []
         for year in range(start_year, end_year + 1):
             gdf = pull_statcast_for_pitcher_year(mlbam_id, year)
@@ -562,13 +578,22 @@ def build_pitcher_dict(all_player_games, start_year=START_YEAR, end_year=END_YEA
                 gdf["year"] = year
                 pitcher_seasons.append(gdf)
             time.sleep(0.1)
-
         if pitcher_seasons:
             combined = pd.concat(pitcher_seasons, ignore_index=True)
-            pitcher_dict[mlbam_id] = add_pitcher_rolling_features(combined)
+            return mlbam_id, add_pitcher_rolling_features(combined)
+        return mlbam_id, None
 
-        if idx % 25 == 0:
-            print(f"  {idx}/{total} pitchers pulled...")
+    with ThreadPoolExecutor(max_workers=MAX_API_WORKERS) as executor:
+        futures = {executor.submit(_fetch_pitcher, pid): pid for pid in qualified}
+        for i, future in enumerate(
+            tqdm(
+                as_completed(futures), total=len(futures), desc="Loading pitcher data"
+            ),
+            1,
+        ):
+            mlbam_id, result = future.result()
+            if result is not None:
+                pitcher_dict[mlbam_id] = result
 
     print(f"Done — pulled data for {len(pitcher_dict)} pitchers")
     return pitcher_dict
