@@ -130,9 +130,9 @@ def compute_wind_out(wind_spd, wind_dir, cf_bearing):
     return round(wind_out, 2)
 
 
-def process_weather_data(df):
+def process_weather_data(df, run_date):
     temps, humidities, wind_spds, wind_outs = [], [], [], []
-    today = date.today().strftime("%Y-%m-%d")
+    today = run_date.strftime("%Y-%m-%d")
 
     for _, row in df.iterrows():
         home_team = row["team_h"]

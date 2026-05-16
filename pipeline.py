@@ -47,6 +47,7 @@ load_dotenv()
 
 DISPLAY_EDGE_ONLY = 1
 EDGE_THRESHOLD = 4.0
+HR_EDGE_THRESHOLD = 1.0
 
 # Force Refresh Data
 REFRESH_DATA = int(os.environ.get("REFRESH_DATA", 0))
@@ -359,17 +360,12 @@ def print_todays_home_victory_preds(df):
         "ML (V)",
         "Edge (V)",
     ]
+    print("\n── Game Winner Predictions ──────────────────────────────────")
     print(f"\n{filtered_df.loc[:,cols]}")
 
 
 def print_todays_homerun_preds(df):
     df = df.copy()
-
-    print(list(df.columns))
-    print(df["days_rest"].describe())
-
-    # filter to top 7 predictions only
-    df = df.nlargest(7, "hr_prob")
 
     # add odds if available
     # get or load cached HR odds
@@ -431,32 +427,34 @@ def print_todays_homerun_preds(df):
         "Book",
     ]
     cols = [c for c in cols if c in df.columns]
+    df["hr_prob_numeric"] = df["HR Prob"]  # save numeric before formatting
     df["HR Prob"] = df["HR Prob"].map(lambda x: f"{x:.1%}")
     if "Implied" in df.columns:
         df["Implied"] = df["Implied"].map(
             lambda x: f"{x:.1%}" if pd.notna(x) else "N/A"
         )
-    df.loc[
-        :,
-        [
-            "date_dblhead",
-            "player_name",
-            "team",
-            "opponent",
-            "slot",
-            "stand",
-            "opp_throws",
-            "park_hr_factor",
-            "temp",
-            "humidity",
-            "hr_prob",
-            "american_odds",
-            "implied_prob",
-            "edge",
-            "book",
-        ],
-    ].to_csv(f"data/results/{RUN_DATE}_homerun_preds.csv", index=False)
-    print(f"\n{df[cols].to_string(index=False)}")
+    df.to_csv(f"data/results/{RUN_DATE}_homerun_preds.csv", index=False)
+
+    # show top 7 for reference
+    print("\n── Top HR Predictions ──────────────────────────────────")
+    print(df.nlargest(7, "hr_prob_numeric")[cols].to_string(index=False))
+
+    # print edges separately
+    if "Edge" in df.columns:
+        edge_df = df[df["Edge"].notna()].copy()
+        edge_df["edge_val"] = edge_df["Edge"].str.replace("%", "").astype(float)
+        bets = edge_df[
+            (edge_df["edge_val"] >= HR_EDGE_THRESHOLD)
+            & (edge_df["BARREL_162"].notna())
+            & (edge_df["BARREL_162"] >= 0.04)
+        ].sort_values("edge_val", ascending=False)
+        if not bets.empty:
+            print(
+                f"\n── HR Bets (edge >= {HR_EDGE_THRESHOLD}%) ──────────────────────────────────"
+            )
+            print(f"\n{bets[cols].to_string(index=False)}")
+        else:
+            print(f"\nNo HR edges >= {HR_EDGE_THRESHOLD}% found today")
 
 
 def print_todays_totals_preds(df):
@@ -542,7 +540,7 @@ def handler(event, context):
     # Add Weather Data
     print("\nLoading Weather Data")
     lineup_w_pitching_batting_team_weather_df = process_weather_data(
-        lineup_w_pitching_batting_team_df
+        lineup_w_pitching_batting_team_df, RUN_DATE
     )
 
     print(f"\nGetting Features for Run Total Predictions")

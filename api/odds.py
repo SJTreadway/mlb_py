@@ -184,7 +184,7 @@ def get_hr_prop_odds():
                     f"https://api.the-odds-api.com/v4/sports/baseball_mlb/events/{event_id}/odds",
                     params={
                         "apiKey": ODDS_API_KEY,
-                        "regions": "us",
+                        "regions": "us,us2",
                         "markets": "batter_home_runs",
                         "oddsFormat": "american",
                     },
@@ -221,17 +221,23 @@ def get_hr_prop_odds():
 
 
 def get_best_hr_odds(odds_df):
-    """Get best available odds per player across all books."""
     if odds_df.empty:
         return pd.DataFrame()
     odds_df["implied_prob"] = odds_df["american_odds"].apply(line_to_prob)
-    return (
-        odds_df.sort_values("implied_prob")
-        .drop_duplicates(subset="player_name")[
-            ["player_name", "book", "american_odds", "implied_prob"]
-        ]
-        .reset_index(drop=True)
+
+    # consensus — median implied prob across books
+    consensus = (
+        odds_df.groupby("player_name")
+        .agg(
+            american_odds=("american_odds", "median"),
+            implied_prob=("implied_prob", "median"),
+            book=("book", "first"),
+            n_books=("book", "count"),
+        )
+        .reset_index()
     )
+
+    return consensus
 
 
 def normalize_name(name):

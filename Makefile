@@ -57,7 +57,6 @@ clean\:cache:
 	rm -f data/hr_training_data.csv
 	rm -f data/hr_training_data_batter_checkpoint.pkl
 	rm -f data/hr_training_data_pitcher_checkpoint.pkl
-	rm -f data/hr_training_data_weather_cache.pkl
 
 clean\:daily:
 	rm -f data/daily/*.pkl
