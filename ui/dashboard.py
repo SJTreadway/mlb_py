@@ -9,7 +9,7 @@ LEAGUE_AVG = {
     "EV": 89.1,
     "HARDHIT%": 0.397,
     "SWSPOT%": 0.334,
-    "HR/PA": 0.032,
+    "HR/PA": 0.038,
     "FB%": 0.261,
 }
 
@@ -236,6 +236,24 @@ def display_dashboard(hr_df, wins_df, hr_bets_df, run_date):
     font-size: 12px;
     color: var(--muted);
   }}
+  
+  .header-right {{
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }}
+
+  .x-link {{
+      color: var(--muted);
+      transition: color 0.2s;
+      display: flex;
+      align-items: center;
+  }}
+
+  .x-link:hover {{
+      color: var(--text);
+  }}
 
   .container {{ padding: 28px 32px; }}
 
@@ -341,7 +359,14 @@ def display_dashboard(hr_df, wins_df, hr_bets_df, run_date):
 <header>
   <span class="logo">⚾</span>
   <h1>MoneyballVo Bets</h1>
-  <span class="date">{run_date}</span>
+  <div class="header-right">
+    <a href="https://x.com/MoneyballVo" target="_blank" class="x-link">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.748l7.73-8.835L1.254 2.25H8.08l4.259 5.63L18.244 2.25zm-1.161 17.52h1.833L7.084 4.126H5.117L17.083 19.77z"/>
+      </svg>
+    </a>
+    <span class="date">{run_date}</span>
+  </div>
 </header>
 
 <div class="container">
