@@ -58,9 +58,8 @@ def get_team_hitting_stats(team_id, year=None):
 # ── Slate ─────────────────────────────────────────────────────────────────────
 
 
-def get_todays_slate():
+def get_games_slate(run_date):
     """Pull today's or tomorrow's games from MLB Stats API."""
-    run_date = date.today() if TOMORROW_GAMES == 0 else date.today() + timedelta(days=1)
     resp = requests.get(
         f"{MLB_API_BASE}/schedule",
         params={
@@ -136,13 +135,13 @@ def get_pitcher_handedness(mlbam_id):
     return ""
 
 
-def get_lineups():
+def get_lineups(run_date):
     """
     Main entry point — replaces Rotowire scraper.
     Returns a DataFrame with one row per game matching the
     structure expected by process_pitching_data and process_batting_data.
     """
-    slate = get_todays_slate()
+    slate = get_games_slate(run_date)
     if not slate:
         return pd.DataFrame()
 

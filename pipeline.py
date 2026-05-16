@@ -61,10 +61,15 @@ BEARER_TOKEN = os.environ["X_BEARER_TOKEN"]
 # Flags for Settings
 TOMORROW_GAMES = int(os.environ["TOMORROW_GAMES"])
 
-# Model file locations
+RUN_DATE = date.today() if TOMORROW_GAMES == 0 else date.today() + timedelta(days=1)
+
+# File locations
 WINS_MODEL_FILE = "models/win_model_2026v1.pkl"
 RUNS_MODEL_FILE = "models/runs_scored_model_v1.pkl"
 HR_MODEL_FILE = "models/homerun_model_2026v1.pkl"
+BATTER_DICT_FILE = f"data/daily/{RUN_DATE}_batter_dict.pkl"
+PITCHER_DICT_FILE = f"data/daily/{RUN_DATE}_pitcher_dict.pkl"
+HR_ODDS_CACHE_FILE = f"data/daily/{RUN_DATE}_hr_odds_cache.pkl"
 
 
 # Set of features we will predict on
@@ -357,8 +362,7 @@ def print_todays_home_victory_preds(df):
     print(f"\n{filtered_df.loc[:,cols]}")
 
 
-def print_todays_homerun_preds(df, RUN_DATE):
-    HR_ODDS_CACHE_FILE = f"data/daily/{RUN_DATE}_hr_odds_cache.pkl"
+def print_todays_homerun_preds(df):
     df = df.copy()
 
     print(list(df.columns))
@@ -432,8 +436,27 @@ def print_todays_homerun_preds(df, RUN_DATE):
         df["Implied"] = df["Implied"].map(
             lambda x: f"{x:.1%}" if pd.notna(x) else "N/A"
         )
+    df.loc[
+        :,
+        [
+            "date_dblhead",
+            "player_name",
+            "team",
+            "opponent",
+            "slot",
+            "stand",
+            "opp_throws",
+            "park_hr_factor",
+            "temp",
+            "humidity",
+            "hr_prob",
+            "american_odds",
+            "implied_prob",
+            "edge",
+            "book",
+        ],
+    ].to_csv(f"data/results/{RUN_DATE}_homerun_preds.csv", index=False)
     print(f"\n{df[cols].to_string(index=False)}")
-    return df
 
 
 def print_todays_totals_preds(df):
@@ -470,11 +493,6 @@ def print_todays_totals_preds(df):
 def handler(event, context):
     print("--- TIME TO COOK 👨🏻‍🍳 ⚾️ 🚀 💰 ---")
 
-    RUN_DATE = date.today() if TOMORROW_GAMES == 0 else date.today() + timedelta(days=1)
-
-    BATTER_DICT_FILE = f"data/daily/{RUN_DATE}_batter_dict.pkl"
-    PITCHER_DICT_FILE = f"data/daily/{RUN_DATE}_pitcher_dict.pkl"
-
     if REFRESH_DATA == 1:
         print(f"\nEmptying Data Directories")
         cleanup_directory()
@@ -491,7 +509,7 @@ def handler(event, context):
 
     else:
         print("\nLoading Lineup Data")
-        df = get_lineups()
+        df = get_lineups(RUN_DATE)
 
         if df.empty:
             print("No lineups posted yet — try again later")
@@ -600,7 +618,7 @@ def handler(event, context):
                 pickle.dump(name_map, f)
         df_hr["hr_prob"] = hr_probs
         df_hr["player_name"] = df_hr["b_id"].map(name_map)
-        df_hr = print_todays_homerun_preds(df_hr, RUN_DATE)
+        print_todays_homerun_preds(df_hr)
     else:
         print("HR df is empty — no batter rows built")
 
@@ -638,26 +656,6 @@ def handler(event, context):
         ],
     ].to_csv(f"data/results/{RUN_DATE}_run_total_preds.csv", index=False)
     """
-    df_hr.loc[
-        :,
-        [
-            "date_dblhead",
-            "player_name",
-            "team",
-            "opponent",
-            "slot",
-            "stand",
-            "opp_throws",
-            "park_hr_factor",
-            "temp",
-            "humidity",
-            "hr_prob",
-            "american_odds",
-            "implied_prob",
-            "edge",
-            "book",
-        ],
-    ].to_csv(f"data/results/{RUN_DATE}_homerun_preds.csv", index=False)
 
     # post_to_X()
     return {}
