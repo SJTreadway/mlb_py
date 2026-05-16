@@ -5,12 +5,12 @@ import pandas as pd
 
 # League average thresholds
 LEAGUE_AVG = {
-    "Barrel%": 0.082,  # 8.2%
-    "EV": 88.4,  # mph
-    "HARDHIT%": 0.394,  # 39.4%
-    "SWSPOT%": 0.352,  # 35.2%
-    "HR/PA": 0.032,  # 3.2%
-    "FB%": 0.248,  # 24.8%
+    "Barrel%": 0.083,
+    "EV": 89.1,
+    "HARDHIT%": 0.397,
+    "SWSPOT%": 0.334,
+    "HR/PA": 0.032,
+    "FB%": 0.261,
 }
 
 
