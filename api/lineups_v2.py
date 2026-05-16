@@ -5,7 +5,7 @@ import time
 import requests
 import pandas as pd
 import numpy as np
-from datetime import date, timedelta
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -144,6 +144,14 @@ def get_lineups(run_date):
     slate = get_games_slate(run_date)
     if not slate:
         return pd.DataFrame()
+
+    # filter out games that have already started
+    now = datetime.now(timezone.utc)
+    active = [g for g in slate if pd.Timestamp(g["game_time"], tz="UTC") > now]
+    skipped = len(slate) - len(active)
+    if skipped > 0:
+        print(f"Skipping {skipped} games that have already started")
+    slate = active
 
     # fetch pitcher handedness
     pitcher_ids = set()

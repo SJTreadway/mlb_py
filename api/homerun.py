@@ -96,10 +96,6 @@ def process_homerun_data(df, batter_data_dict, pitcher_data_dict):
                 batter_feats["age"] = brow.get("age", np.nan)
                 batter_feats["days_rest"] = brow.get("days_rest", np.nan)
                 batter_feats["is_home"] = brow.get("is_home", np.nan)
-                batter_feats["temp"] = brow.get("temp", 72)
-                batter_feats["humidity"] = brow.get("humidity", 50)
-                batter_feats["wind_spd"] = brow.get("wind_spd", 0)
-                batter_feats["wind_out"] = brow.get("wind_out", 0)
 
                 row = {
                     "date_dblhead": date_dblhead,
@@ -112,6 +108,8 @@ def process_homerun_data(df, batter_data_dict, pitcher_data_dict):
                     "park_hr_factor": PARK_HR_FACTORS.get(game_row["team_h"], 100),
                     "temp": game_row.get("temp", 72),
                     "humidity": game_row.get("humidity", 50),
+                    "wind_spd": game_row.get("wind_spd", 0),
+                    "wind_out": game_row.get("wind_out", 0),
                     **batter_feats,
                     **pitcher_feats,
                 }

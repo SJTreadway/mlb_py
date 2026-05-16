@@ -37,6 +37,8 @@ from api.batters_v2 import process_batting_data
 from api.weather import process_weather_data
 from api.homerun import process_homerun_data
 
+from ui.dashboard import display_dashboard
+
 from cleanup import cleanup_directory
 
 import tweepy
@@ -345,6 +347,10 @@ def print_todays_home_victory_preds(df):
     )
     filtered_df["Time"] = filtered_df["Time"].apply(format_game_time)
     filtered_df.sort_values("Date", ascending=True, inplace=True)
+    if "Prob Win (H)" in filtered_df.columns:
+        filtered_df["Prob Win (H)"] = filtered_df["Prob Win (H)"].map(
+            lambda x: f"{x:.3f}" if pd.notna(x) else "N/A"
+        )
     cols = [
         "Date",
         "Time",
@@ -362,6 +368,7 @@ def print_todays_home_victory_preds(df):
     ]
     print("\n── Game Winner Predictions ──────────────────────────────────")
     print(f"\n{filtered_df.loc[:,cols]}")
+    return filtered_df.loc[:, cols]
 
 
 def print_todays_homerun_preds(df):
@@ -410,33 +417,74 @@ def print_todays_homerun_preds(df):
         }
     )
 
+    # Format for presentation
+    if "opp_HR_per_BF_75" in df.columns:
+        df["P-HR/BF"] = df["opp_HR_per_BF_75"].map(
+            lambda x: f"{x:.3f}" if pd.notna(x) else "N/A"
+        )
+    if "EV_162" in df.columns:
+        df["EV"] = df["EV_162"].map(lambda x: f"{x:.1f}" if pd.notna(x) else "N/A")
+    if "wind_spd" in df.columns:
+        df["Wind"] = df["wind_spd"].map(
+            lambda x: f"{x:.1f} mph" if pd.notna(x) else "N/A"
+        )
+    if "wind_out" in df.columns:
+        df["Wind Out"] = df["wind_out"].map(
+            lambda x: f"{x:+.1f}" if pd.notna(x) else "N/A"
+        )
+
+    # all % cols
+    pct_cols = {
+        "Implied": "Implied",
+        "BARREL_162": "Barrel%",
+        "HARDHIT_162": "HARDHIT%",
+        "SWSPOT_162": "SWSPOT%",
+        "HR_per_PA_162": "HR/PA",
+        "opp_FB_perc_35": "FB%",
+    }
+    for k, v in pct_cols.items():
+        if k in df.columns:
+            df[v] = df[k].map(lambda x: f"{x:.1%}" if pd.notna(x) else "N/A")
+
+    df["Game"] = df.apply(
+        lambda r: (
+            f'{r["Opponent"]} @ {r["Team"]}'
+            if r["is_home"]
+            else f'{r["Team"]} @ {r["Opponent"]}'
+        ),
+        axis=1,
+    )
+
     cols = [
         "Player",
-        "Team",
-        "Opponent",
-        "Slot",
-        "Bats",
-        "P_Throws",
+        "Game",
+        "Barrel%",
+        "EV",
+        "SWSPOT%",
+        "HARDHIT%",
+        "HR/PA",
         "Park",
         "Temp",
         "Humidity",
+        "Wind",
+        "Wind Out",
+        "Bats",
+        "P_Throws",
+        "FB%",
+        "P-HR/BF",
         "HR Prob",
         "Odds",
-        "Implied",
         "Edge",
         "Book",
     ]
     cols = [c for c in cols if c in df.columns]
     df["hr_prob_numeric"] = df["HR Prob"]  # save numeric before formatting
     df["HR Prob"] = df["HR Prob"].map(lambda x: f"{x:.1%}")
-    if "Implied" in df.columns:
-        df["Implied"] = df["Implied"].map(
-            lambda x: f"{x:.1%}" if pd.notna(x) else "N/A"
-        )
     df.to_csv(f"data/results/{RUN_DATE}_homerun_preds.csv", index=False)
 
     # show top 7 for reference
     print("\n── Top HR Predictions ──────────────────────────────────")
+    top_hr_df = df.nlargest(7, "hr_prob_numeric")[cols]
     print(df.nlargest(7, "hr_prob_numeric")[cols].to_string(index=False))
 
     # print edges separately
@@ -445,8 +493,10 @@ def print_todays_homerun_preds(df):
         edge_df["edge_val"] = edge_df["Edge"].str.replace("%", "").astype(float)
         bets = edge_df[
             (edge_df["edge_val"] >= HR_EDGE_THRESHOLD)
-            & (edge_df["BARREL_162"].notna())
-            & (edge_df["BARREL_162"] >= 0.04)
+            & (edge_df["BARREL_162"] >= 0.06)  # 6% barrel rate
+            & (edge_df["EV_162"] >= 88.4)  # league average EV
+            & (edge_df["HARDHIT_162"] >= 0.35)  # 35% hard hit rate
+            & (edge_df["HR_per_PA_162"] >= 0.03)  # 3% HR/PA minimum
         ].sort_values("edge_val", ascending=False)
         if not bets.empty:
             print(
@@ -455,6 +505,8 @@ def print_todays_homerun_preds(df):
             print(f"\n{bets[cols].to_string(index=False)}")
         else:
             print(f"\nNo HR edges >= {HR_EDGE_THRESHOLD}% found today")
+
+    return top_hr_df, bets[cols]
 
 
 def print_todays_totals_preds(df):
@@ -595,7 +647,9 @@ def handler(event, context):
     )
 
     lineup_w_pitching_batting_team_weather_df.reset_index(drop=True, inplace=True)
-    print_todays_home_victory_preds(lineup_w_pitching_batting_team_weather_df)
+    wins_display_df = print_todays_home_victory_preds(
+        lineup_w_pitching_batting_team_weather_df
+    )
 
     df_hr = process_homerun_data(
         lineup_w_pitching_batting_team_weather_df,
@@ -616,9 +670,16 @@ def handler(event, context):
                 pickle.dump(name_map, f)
         df_hr["hr_prob"] = hr_probs
         df_hr["player_name"] = df_hr["b_id"].map(name_map)
-        print_todays_homerun_preds(df_hr)
+        hr_display_df, hr_bets_df = print_todays_homerun_preds(df_hr)
     else:
-        print("HR df is empty — no batter rows built")
+        print("\nHR df is empty — no batter rows built")
+
+    display_dashboard(
+        hr_df=hr_display_df,  # your formatted top 7 HR df
+        wins_df=wins_display_df,  # your formatted wins df
+        hr_bets_df=hr_bets_df,  # your formatted bets df
+        run_date=str(RUN_DATE),
+    )
 
     # not printing df output until o/u preds are fixed
     # print_todays_totals_preds(df_runs)
