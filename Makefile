@@ -20,10 +20,6 @@ test-pattern:
 install-test:
 	python3.11 -m pip install pytest --user
 
-# Clean test cache
-clean:
-	rm -rf .pytest_cache tests/__pycache__ tests/*.pyc
-
 # Run with coverage (install pytest-cov first)
 test-cov:
 	python3.11 -m pytest tests/ --cov=. --cov-report=term-missing
@@ -55,6 +51,19 @@ backup\:model:
 backup:
 	make backup\:cache
 	make backup\:model
+
+# Delete Cache Files
+clean\:cache:
+	rm -f data/hr_training_data.csv
+	rm -f data/hr_training_data_batter_checkpoint.pkl
+	rm -f data/hr_training_data_pitcher_checkpoint.pkl
+
+clean\:daily:
+	rm -f data/daily/*.pkl
+
+clean:
+	make clean\:cache
+	make clean\:daily
 
 # Help
 help:

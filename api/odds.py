@@ -164,6 +164,99 @@ def get_odds_results():
         print(f"Error occurred getting Odds: {e}")
 
 
+def get_hr_prop_odds():
+    """Pull today's HR prop odds from the-odds-api."""
+    try:
+        # step 1: get event IDs
+        events_resp = requests.get(
+            f"https://api.the-odds-api.com/v4/sports/baseball_mlb/events",
+            params={"apiKey": ODDS_API_KEY, "dateFormat": "iso"},
+            timeout=15,
+        )
+        events_resp.raise_for_status()
+        events = events_resp.json()
+
+        all_props = []
+        for event in events:
+            event_id = event["id"]
+            try:
+                resp = requests.get(
+                    f"https://api.the-odds-api.com/v4/sports/baseball_mlb/events/{event_id}/odds",
+                    params={
+                        "apiKey": ODDS_API_KEY,
+                        "regions": "us",
+                        "markets": "batter_home_runs",
+                        "oddsFormat": "american",
+                    },
+                    timeout=15,
+                )
+                if resp.status_code != 200:
+                    continue
+
+                data = resp.json()
+                for bookmaker in data.get("bookmakers", []):
+                    book = bookmaker["key"]
+                    for market in bookmaker.get("markets", []):
+                        if market["key"] != "batter_home_runs":
+                            continue
+                        for outcome in market.get("outcomes", []):
+                            if outcome.get("name", "").lower() != "over":
+                                continue
+                            if outcome.get("point", 0.5) != 0.5:
+                                continue
+                            all_props.append(
+                                {
+                                    "player_name": outcome["description"],
+                                    "book": book,
+                                    "american_odds": outcome["price"],
+                                }
+                            )
+            except Exception as e:
+                continue
+
+        return pd.DataFrame(all_props)
+    except Exception as e:
+        print(f"Error fetching HR prop odds: {e}")
+        return pd.DataFrame()
+
+
+def get_best_hr_odds(odds_df):
+    """Get best available odds per player across all books."""
+    if odds_df.empty:
+        return pd.DataFrame()
+    odds_df["implied_prob"] = odds_df["american_odds"].apply(line_to_prob)
+    return (
+        odds_df.sort_values("implied_prob")
+        .drop_duplicates(subset="player_name")[
+            ["player_name", "book", "american_odds", "implied_prob"]
+        ]
+        .reset_index(drop=True)
+    )
+
+
+def normalize_name(name):
+    return name.lower().strip().replace(".", "").replace("'", "").replace("-", " ")
+
+
+def match_hr_odds(pred_df, odds_df):
+    """Join odds to HR predictions by normalized player name."""
+    if odds_df.empty:
+        return pred_df
+
+    pred_df = pred_df.copy()
+    odds_df = odds_df.copy()
+
+    pred_df["name_normalized"] = pred_df["player_name"].apply(
+        lambda x: normalize_name(str(x)) if pd.notna(x) else ""
+    )
+    odds_df["name_normalized"] = odds_df["player_name"].apply(
+        lambda x: normalize_name(str(x)) if pd.notna(x) else ""
+    )
+
+    odds_slim = odds_df[["name_normalized", "american_odds", "implied_prob", "book"]]
+    return pred_df.merge(odds_slim, on="name_normalized", how="left")
+
+
 def get_money_line_price(team):
     stripped = get_stripped_team_val(team)
     res = get_odds_results().get(stripped)

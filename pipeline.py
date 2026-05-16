@@ -28,6 +28,9 @@ from api.odds import (
     get_total_line,
     get_money_line_price,
     calculate_edge,
+    get_hr_prop_odds,
+    get_best_hr_odds,
+    match_hr_odds,
 )
 from api.pitchers_v2 import process_pitching_data
 from api.batters_v2 import process_batting_data
@@ -350,11 +353,38 @@ def print_todays_home_victory_preds(df):
     print(f"\n{filtered_df.loc[:,cols]}")
 
 
-def print_todays_homerun_preds(df):
+def print_todays_homerun_preds(df, RUN_DATE):
+    HR_ODDS_CACHE_FILE = f"data/daily/{RUN_DATE}_hr_odds_cache.pkl"
     df = df.copy()
+
+    print(list(df.columns))
+    print(df["days_rest"].describe())
 
     # filter to top 7 predictions only
     df = df.nlargest(7, "hr_prob")
+
+    # add odds if available
+    # get or load cached HR odds
+    if os.path.exists(HR_ODDS_CACHE_FILE):
+        with open(HR_ODDS_CACHE_FILE, "rb") as f:
+            best_odds = pickle.load(f)
+    else:
+        odds_df = get_hr_prop_odds()
+        best_odds = get_best_hr_odds(odds_df)
+        with open(HR_ODDS_CACHE_FILE, "wb") as f:
+            pickle.dump(best_odds, f)
+
+    df = match_hr_odds(df, best_odds)
+
+    if "american_odds" in df.columns:
+        df["edge"] = df.apply(
+            lambda r: (
+                calculate_edge(r["hr_prob"], r["american_odds"])
+                if pd.notna(r.get("american_odds"))
+                else None
+            ),
+            axis=1,
+        )
 
     df = df.rename(
         columns={
@@ -363,12 +393,16 @@ def print_todays_homerun_preds(df):
             "opponent": "Opponent",
             "slot": "Slot",
             "stand": "Bats",
-            "opp_throws": "P Throws",
+            "opp_throws": "P_Throws",
             "park_hr_factor": "Park",
             "temp": "Temp",
             "humidity": "Humidity",
             "hr_prob": "HR Prob",
             "player_name": "Player",
+            "american_odds": "Odds",
+            "implied_prob": "Implied",
+            "edge": "Edge",
+            "book": "Book",
         }
     )
 
@@ -378,15 +412,24 @@ def print_todays_homerun_preds(df):
         "Opponent",
         "Slot",
         "Bats",
-        "P Throws",
+        "P_Throws",
         "Park",
         "Temp",
         "Humidity",
         "HR Prob",
+        "Odds",
+        "Implied",
+        "Edge",
+        "Book",
     ]
     cols = [c for c in cols if c in df.columns]
     df["HR Prob"] = df["HR Prob"].map(lambda x: f"{x:.1%}")
+    if "Implied" in df.columns:
+        df["Implied"] = df["Implied"].map(
+            lambda x: f"{x:.1%}" if pd.notna(x) else "N/A"
+        )
     print(f"\n{df[cols].to_string(index=False)}")
+    return df
 
 
 def print_todays_totals_preds(df):
@@ -553,7 +596,7 @@ def handler(event, context):
                 pickle.dump(name_map, f)
         df_hr["hr_prob"] = hr_probs
         df_hr["player_name"] = df_hr["b_id"].map(name_map)
-        print_todays_homerun_preds(df_hr)
+        print_todays_homerun_preds(df_hr, RUN_DATE)
     else:
         print("HR df is empty — no batter rows built")
 
@@ -591,7 +634,26 @@ def handler(event, context):
         ],
     ].to_csv(f"data/results/{RUN_DATE}_run_total_preds.csv", index=False)
     """
-    df_hr.to_csv(f"data/results/{RUN_DATE}_homerun_preds.csv", index=False)
+    df_hr.loc[
+        :,
+        [
+            "date_dblhead",
+            "player_name",
+            "team",
+            "opponent",
+            "slot",
+            "stand",
+            "opp_throws",
+            "park_hr_factor",
+            "temp",
+            "humidity",
+            "hr_prob",
+            "american_odds",
+            "implied_prob",
+            "edge",
+            "book",
+        ],
+    ].to_csv(f"data/results/{RUN_DATE}_homerun_preds.csv", index=False)
 
     # post_to_X()
     return {}
