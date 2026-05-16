@@ -17,6 +17,7 @@ def process_homerun_data(df, batter_data_dict, pitcher_data_dict):
     """
     rows = []
 
+    # TODO: remove
     b_id = "665833"  # test with first batter
     bdf = batter_data_dict.get(b_id)
     if bdf is not None:

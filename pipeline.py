@@ -524,18 +524,9 @@ def handler(event, context):
         hr_probs = predict_homerun_hitter(df_hr.loc[:, HR_FEAT_SET])
         NAME_MAP_FILE = f"data/daily/{RUN_DATE}_name_map.pkl"
 
-        """
-        print(f"HR df shape: {df_hr.shape}")
-        print(f'Sample b_ids: {df_hr["b_id"].head()}')
-
-        print(f"hr_probs length: {len(hr_probs)}")
-        print(f"hr_probs sample: {hr_probs[:5]}")
-
+        # TODO: remove
         print(f"Max HR prob: {max(hr_probs):.3f}")
         print(f"Mean HR prob: {sum(hr_probs)/len(hr_probs):.3f}")
-
-        print(df_hr[HR_FEAT_SET].describe())
-        """
 
         if os.path.exists(NAME_MAP_FILE):
             with open(NAME_MAP_FILE, "rb") as f:

@@ -84,7 +84,7 @@ def load_batting_data(batter_ids):
             time.sleep(0.1)
             return None
         except Exception as e:
-            return f"Error fetching data for batter {b_id_str}: {e}"
+            return f"Error fetching data for batter {b_id}: {e}"
 
     worker_count = max(1, min(MAX_API_WORKERS, len(valid_batter_ids)))
     with ThreadPoolExecutor(max_workers=worker_count) as executor:
@@ -127,7 +127,11 @@ def transform_statcast_batter(df):
         sweet_spots = len(
             batted[(batted["launch_angle"] >= 8) & (batted["launch_angle"] <= 32)]
         )
-        barrels = int(batted["barrel"].sum()) if "barrel" in batted.columns else 0
+        barrels = (
+            int((batted["launch_speed_angle"] == 6).sum())
+            if "launch_speed_angle" in batted.columns
+            else 0
+        )
 
         is_home = group["inning_topbot"].iloc[0] == "Bot"
         at_vs = "VS" if is_home else "AT"
@@ -456,20 +460,34 @@ def process_batter_df(b_id, pos_map):
             ) / batted_mod
 
             # calculate HR/PA
-            new_columns["HR_per_PA_" + str(winsize)] = new_columns[hr_col] / pa.replace(
-                0, np.nan
+            new_columns["HR_per_PA_" + str(winsize)] = new_columns[hr_col] / np.where(
+                pa == 0, np.nan, pa
             )
 
             # calculate HR/PA vs R and L
-            new_columns[f"HR_per_PA_vs_R_{winsize}"] = hr_r / ab_r.replace(0, np.nan)
-            new_columns[f"HR_per_PA_vs_L_{winsize}"] = hr_l / ab_l.replace(0, np.nan)
+            hr_r_col = "rollsum_HR_vs_R_" + str(winsize)
+            ab_r_col = "rollsum_AB_vs_R_" + str(winsize)
+            hr_l_col = "rollsum_HR_vs_L_" + str(winsize)
+            ab_l_col = "rollsum_AB_vs_L_" + str(winsize)
 
-            # est_woba and est_slg
-            new_columns[f"est_woba_{winsize}"] = est_woba_roll / batted_mod.replace(
+            new_columns["HR_per_PA_" + str(winsize)] = new_columns[hr_col] / pa.replace(
                 0, np.nan
             )
-            new_columns[f"est_slg_{winsize}"] = est_slg_roll / batted_mod.replace(
-                0, np.nan
+            new_columns[f"HR_per_PA_vs_R_{winsize}"] = new_columns[hr_r_col] / np.where(
+                new_columns[ab_r_col] == 0, np.nan, new_columns[ab_r_col]
+            )
+            new_columns[f"HR_per_PA_vs_L_{winsize}"] = new_columns[hr_l_col] / np.where(
+                new_columns[ab_l_col] == 0, np.nan, new_columns[ab_l_col]
+            )
+
+            # est_woba and est_slg
+            est_woba_col = "rollsum_est_woba_" + str(winsize)
+            est_slg_col = "rollsum_est_slg_" + str(winsize)
+            new_columns[f"est_woba_{winsize}"] = new_columns[est_woba_col] / np.where(
+                batted_mod == 0, np.nan, batted_mod
+            )
+            new_columns[f"est_slg_{winsize}"] = new_columns[est_slg_col] / np.where(
+                batted_mod == 0, np.nan, batted_mod
             )
 
         # add player age
