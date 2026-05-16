@@ -470,8 +470,8 @@ def process_batter_df(b_id, pos_map):
             hr_l_col = "rollsum_HR_vs_L_" + str(winsize)
             ab_l_col = "rollsum_AB_vs_L_" + str(winsize)
 
-            new_columns["HR_per_PA_" + str(winsize)] = new_columns[hr_col] / pa.replace(
-                0, np.nan
+            new_columns["HR_per_PA_" + str(winsize)] = new_columns[hr_col] / np.where(
+                pa == 0, np.nan, pa
             )
             new_columns[f"HR_per_PA_vs_R_{winsize}"] = new_columns[hr_r_col] / np.where(
                 new_columns[ab_r_col] == 0, np.nan, new_columns[ab_r_col]
