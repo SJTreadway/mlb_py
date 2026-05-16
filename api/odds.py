@@ -223,21 +223,18 @@ def get_hr_prop_odds():
 def get_best_hr_odds(odds_df):
     if odds_df.empty:
         return pd.DataFrame()
-    odds_df["implied_prob"] = odds_df["american_odds"].apply(line_to_prob)
 
-    # consensus — median implied prob across books
-    consensus = (
-        odds_df.groupby("player_name")
-        .agg(
-            american_odds=("american_odds", "median"),
-            implied_prob=("implied_prob", "median"),
-            book=("book", "first"),
-            n_books=("book", "count"),
-        )
-        .reset_index()
-    )
+    # target FanDuel specifically
+    fanduel = odds_df[odds_df["book"] == "fanduel"]
 
-    return consensus
+    if fanduel.empty:
+        # fallback to all books if FanDuel not available
+        print("FanDuel props not available — using consensus")
+        odds_df["implied_prob"] = odds_df["american_odds"].apply(line_to_prob)
+        return odds_df.sort_values("implied_prob").drop_duplicates(subset="player_name")
+
+    fanduel["implied_prob"] = fanduel["american_odds"].apply(line_to_prob)
+    return fanduel[["player_name", "book", "american_odds", "implied_prob"]]
 
 
 def normalize_name(name):
