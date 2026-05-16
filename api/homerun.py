@@ -4,7 +4,7 @@ from helpers import get_park_factors_map
 
 PARK_HR_FACTORS = get_park_factors_map()
 
-WINDOWS_BAT = [30, 75, 162, 350]
+WINDOWS_BAT = [7, 14, 30, 75, 162, 350]
 WINDOWS_PITCH = [10, 35, 75]
 
 
@@ -94,6 +94,8 @@ def process_homerun_data(df, batter_data_dict, pitcher_data_dict):
                     )
 
                 batter_feats["age"] = brow.get("age", np.nan)
+                batter_feats["days_rest"] = brow.get("days_rest", np.nan)
+                batter_feats["is_home"] = brow.get("is_home", np.nan)
 
                 row = {
                     "date_dblhead": date_dblhead,

@@ -11,7 +11,7 @@ from helpers import roll_column, get_team_league_map
 
 from pybaseball import statcast_batter
 
-WINDOWS = [30, 75, 162, 350]
+WINDOWS = [7, 14, 30, 75, 162, 350]
 MLB_API_PEOPLE = "https://statsapi.mlb.com/api/v1/people"
 YEAR = int(os.environ["YEAR"])
 MAX_API_WORKERS = int(os.environ.get("MAX_API_WORKERS", "8"))
@@ -239,6 +239,13 @@ def transform_statcast_batter(df):
                 ),
                 "p_throws": p_throws,
                 "stand": stand,
+                "days_rest": (
+                    float(group["batter_days_since_prev_game"].dropna().iloc[0])
+                    if "batter_days_since_prev_game" in group.columns
+                    and group["batter_days_since_prev_game"].notna().any()
+                    else np.nan
+                ),
+                "is_home": int(is_home),
             }
         )
 
@@ -490,8 +497,9 @@ def process_batter_df(b_id, pos_map):
                 batted_mod == 0, np.nan, batted_mod
             )
 
-        # add player age
         batter_df["age"] = pd.to_numeric(batter_df["age"], errors="coerce")
+        batter_df["days_rest"] = pd.to_numeric(batter_df["days_rest"], errors="coerce")
+        batter_df["is_home"] = pd.to_numeric(batter_df["is_home"], errors="coerce")
 
         # Concatenate all new columns at once to avoid fragmentation
         if new_columns:

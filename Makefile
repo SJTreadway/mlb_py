@@ -41,7 +41,7 @@ test-failed:
 
 # Model Training
 train\:homerun:
-	python3.11 train/homerun_model_training.py
+	python3.11 train/train_homerun_model.py
 
 # Backup Training Data
 backup\:cache:

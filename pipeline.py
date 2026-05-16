@@ -4,8 +4,6 @@ import os
 import math
 import warnings
 
-from train.homerun_model_training import train_model
-
 # Silence all performance warnings
 warnings.simplefilter("ignore", category=UserWarning)
 warnings.simplefilter("ignore", category=FutureWarning)
@@ -145,30 +143,48 @@ HOME_VICTORY_FEAT_SET = [
 ]
 
 HR_FEAT_SET = [
+    "BARREL_7",
+    "BARREL_14",
     "BARREL_30",
     "BARREL_75",
     "BARREL_162",
+    "EV_7",
+    "EV_14",
     "EV_30",
     "EV_75",
     "EV_162",
+    "HARDHIT_7",
+    "HARDHIT_14",
     "HARDHIT_30",
     "HARDHIT_75",
     "HARDHIT_162",
+    "SWSPOT_7",
+    "SWSPOT_14",
     "SWSPOT_30",
     "SWSPOT_75",
     "SWSPOT_162",
+    "HR_per_PA_7",
+    "HR_per_PA_14",
     "HR_per_PA_30",
     "HR_per_PA_75",
     "HR_per_PA_162",
     "HR_per_PA_350",
+    "HR_per_PA_vs_R_7",
+    "HR_per_PA_vs_R_14",
     "HR_per_PA_vs_R_30",
     "HR_per_PA_vs_R_75",
     "HR_per_PA_vs_R_162",
+    "HR_per_PA_vs_L_7",
+    "HR_per_PA_vs_L_14",
     "HR_per_PA_vs_L_30",
     "HR_per_PA_vs_L_75",
     "HR_per_PA_vs_L_162",
+    "SLG_7",
+    "SLG_14",
     "SLG_30",
     "SLG_75",
+    "OBP_7",
+    "OBP_14",
     "OBP_30",
     "OBP_75",
     "OBS_30",
@@ -184,12 +200,17 @@ HR_FEAT_SET = [
     # "bat_speed_30",
     # "bat_speed_75",
     # "bat_speed_162",
+    "est_woba_7",
+    "est_woba_14",
     "est_woba_30",
     "est_woba_75",
     "est_woba_162",
+    "est_slg_7",
+    "est_slg_14",
     "est_slg_30",
     "est_slg_75",
     "est_slg_162",
+    "is_home",
 ]
 
 
@@ -332,9 +353,8 @@ def print_todays_home_victory_preds(df):
 def print_todays_homerun_preds(df):
     df = df.copy()
 
-    # filter to top predictions only
-    df = df[df["hr_prob"] >= 0.14].copy()
-    df = df.sort_values("hr_prob", ascending=False)
+    # filter to top 7 predictions only
+    df = df.nlargest(7, "hr_prob")
 
     df = df.rename(
         columns={
