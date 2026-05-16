@@ -214,6 +214,10 @@ HR_FEAT_SET = [
     "est_slg_75",
     "est_slg_162",
     "is_home",
+    "temp",
+    "humidity",
+    "wind_spd",
+    "wind_out",
 ]
 
 
@@ -596,7 +600,7 @@ def handler(event, context):
                 pickle.dump(name_map, f)
         df_hr["hr_prob"] = hr_probs
         df_hr["player_name"] = df_hr["b_id"].map(name_map)
-        print_todays_homerun_preds(df_hr, RUN_DATE)
+        df_hr = print_todays_homerun_preds(df_hr, RUN_DATE)
     else:
         print("HR df is empty — no batter rows built")
 
