@@ -17,13 +17,6 @@ def process_homerun_data(df, batter_data_dict, pitcher_data_dict):
     """
     rows = []
 
-    # TODO: remove
-    b_id = "665833"  # test with first batter
-    bdf = batter_data_dict.get(b_id)
-    if bdf is not None:
-        print(bdf.columns.tolist())
-        print(bdf[["HR_per_PA_30", "BARREL_30", "age"]].tail(3))
-
     for _, game_row in df.iterrows():
         date_dblhead = game_row["date_dblhead"]
         sp_id_h = game_row["starting_pitcher_id_h"]

@@ -333,7 +333,7 @@ def print_todays_homerun_preds(df):
     df = df.copy()
 
     # filter to top predictions only
-    df = df[df["hr_prob"] >= 0.10].copy()
+    df = df[df["hr_prob"] >= 0.14].copy()
     df = df.sort_values("hr_prob", ascending=False)
 
     df = df.rename(
@@ -523,10 +523,6 @@ def handler(event, context):
     if not df_hr.empty:
         hr_probs = predict_homerun_hitter(df_hr.loc[:, HR_FEAT_SET])
         NAME_MAP_FILE = f"data/daily/{RUN_DATE}_name_map.pkl"
-
-        # TODO: remove
-        print(f"Max HR prob: {max(hr_probs):.3f}")
-        print(f"Mean HR prob: {sum(hr_probs)/len(hr_probs):.3f}")
 
         if os.path.exists(NAME_MAP_FILE):
             with open(NAME_MAP_FILE, "rb") as f:
