@@ -9,7 +9,7 @@ from tqdm import tqdm
 
 from helpers import roll_column, get_team_league_map
 
-from pybaseball import playerid_reverse_lookup, statcast_batter
+from pybaseball import statcast_batter
 
 WINDOWS = [30, 75, 162, 350]
 MLB_API_PEOPLE = "https://statsapi.mlb.com/api/v1/people"
@@ -28,6 +28,11 @@ def process_batting_data(df):
             colname = "batter" + str(num) + "_id" + suffix
             batter_ids = np.concatenate((batter_ids, pd.unique(df[colname])))
     batter_ids = pd.unique(batter_ids)
+    batter_ids = [
+        str(int(b))
+        for b in batter_ids
+        if b is not None and not pd.isna(b) and str(b) != "nan"
+    ]
 
     # step 2: build position map for batter ids
     pos_map = build_position_map(batter_ids)
@@ -46,30 +51,27 @@ def load_batting_data(batter_ids):
     Load batting data using pybaseball API (statcast_batter).
     Much faster than scraping Retrosheet and Baseball-Reference.
     """
-    valid_batter_ids = [b_id for b_id in batter_ids if b_id and not pd.isna(b_id)]
+    valid_batter_ids = [
+        str(int(b_id))
+        for b_id in batter_ids
+        if b_id is not None and not pd.isna(b_id) and str(b_id) != "nan"
+    ]
     if not valid_batter_ids:
         return
 
-    # One bulk call instead of N individual calls inside the thread pool
-    rev = playerid_reverse_lookup(valid_batter_ids, key_type="retro")
-    mlbam_map = dict(zip(rev["key_retro"], rev["key_mlbam"].astype(int)))
-
     def _fetch_and_store_batter(b_id):
         fname_out = "data/bat/batting_data_" + b_id + ".csv"
-        mlbam_id = mlbam_map.get(b_id)
-        if not mlbam_id:
-            return f"Skipping batter {b_id} - could not convert to MLBAM ID"
 
         start_date = f"{YEAR}-03-01"
         end_date = f"{YEAR}-11-30"
         try:
-            df_season = statcast_batter(start_date, end_date, mlbam_id)
+            df_season = statcast_batter(start_date, end_date, b_id)
             if df_season.empty:
-                return f"No data found for batter {b_id} (MLBAM: {mlbam_id})"
+                return f"No data found for batter {b_id}"
 
             df_season = transform_statcast_batter(df_season)
             if not os.path.exists(fname_out):
-                df_historical = get_historical_batting_data(mlbam_id)
+                df_historical = get_historical_batting_data(b_id)
                 df_temp = pd.concat((df_historical, df_season))
             else:
                 df_existing = pd.read_csv(fname_out)
@@ -82,7 +84,7 @@ def load_batting_data(batter_ids):
             time.sleep(0.1)
             return None
         except Exception as e:
-            return f"Error fetching data for batter {b_id}: {e}"
+            return f"Error fetching data for batter {b_id_str}: {e}"
 
     worker_count = max(1, min(MAX_API_WORKERS, len(valid_batter_ids)))
     with ThreadPoolExecutor(max_workers=worker_count) as executor:
@@ -130,6 +132,9 @@ def transform_statcast_batter(df):
         is_home = group["inning_topbot"].iloc[0] == "Bot"
         at_vs = "VS" if is_home else "AT"
         opponent = group["away_team"].iloc[0] if is_home else group["home_team"].iloc[0]
+
+        p_throws = group["p_throws"].iloc[0] if "p_throws" in group.columns else ""
+        stand = group["stand"].iloc[0] if "stand" in group.columns else ""
 
         non_ab = [
             "walk",
@@ -213,6 +218,23 @@ def transform_statcast_batter(df):
                 "hard_hits": hard_hits,
                 "sweet_spots": sweet_spots,
                 "barrels": barrels,
+                "HR_vs_R": hr if p_throws == "R" else 0,
+                "AB_vs_R": ab if p_throws == "R" else 0,
+                "HR_vs_L": hr if p_throws == "L" else 0,
+                "AB_vs_L": ab if p_throws == "L" else 0,
+                "age": (
+                    float(group["age_bat"].dropna().iloc[0])
+                    if "age_bat" in group.columns and group["age_bat"].notna().any()
+                    else np.nan
+                ),
+                "est_woba": float(
+                    batted["estimated_woba_using_speedangle"].dropna().sum()
+                ),
+                "est_slg": float(
+                    batted["estimated_slg_using_speedangle"].dropna().sum()
+                ),
+                "p_throws": p_throws,
+                "stand": stand,
             }
         )
 
@@ -246,7 +268,7 @@ def calculate_cumulative_stats(df):
     return df
 
 
-def get_historical_batting_data(mlbam_id):
+def get_historical_batting_data(b_id):
     """
     Get historical batting data from 2008 onwards (when Statcast began).
     """
@@ -257,7 +279,7 @@ def get_historical_batting_data(mlbam_id):
         try:
             start_date = f"{year}-03-01"
             end_date = f"{year}-11-30"
-            df_year = statcast_batter(start_date, end_date, mlbam_id)
+            df_year = statcast_batter(start_date, end_date, b_id)
             if not df_year.empty:
                 all_data.append(transform_statcast_batter(df_year))
             time.sleep(0.1)
@@ -272,11 +294,11 @@ def get_historical_batting_data(mlbam_id):
 
 def process_batter_df(b_id, pos_map):
     dict_def = get_position_defaults()
-    fname = f"data/bat/batting_data_{b_id}.csv"
+    fname = f"data/bat/batting_data_{str(int(b_id))}.csv"
     try:
         batter_df = pd.read_csv(fname)
         # Use the map directly — don't trust the Pos column from Statcast
-        pos = pos_map.get(b_id, "dh")  # fallback to dh defaults if unknown
+        pos = pos_map.get(str(int(b_id)), "dh")  # fallback to dh defaults if unknown
         if pos not in dict_def:
             pos = "dh"
 
@@ -310,6 +332,12 @@ def process_batter_df(b_id, pos_map):
                 "hard_hits",
                 "sweet_spots",
                 "barrels",
+                "HR_vs_R",
+                "AB_vs_R",
+                "HR_vs_L",
+                "AB_vs_L",
+                "est_woba",
+                "est_slg",
             ]:
                 new_col = "rollsum_" + raw_col + "_" + suff
                 new_columns[new_col] = roll_column(batter_df, raw_col, winsize)
@@ -427,6 +455,26 @@ def process_batter_df(b_id, pos_map):
                 new_columns[bar_col] + fake_batted * barrel_def
             ) / batted_mod
 
+            # calculate HR/PA
+            new_columns["HR_per_PA_" + str(winsize)] = new_columns[hr_col] / pa.replace(
+                0, np.nan
+            )
+
+            # calculate HR/PA vs R and L
+            new_columns[f"HR_per_PA_vs_R_{winsize}"] = hr_r / ab_r.replace(0, np.nan)
+            new_columns[f"HR_per_PA_vs_L_{winsize}"] = hr_l / ab_l.replace(0, np.nan)
+
+            # est_woba and est_slg
+            new_columns[f"est_woba_{winsize}"] = est_woba_roll / batted_mod.replace(
+                0, np.nan
+            )
+            new_columns[f"est_slg_{winsize}"] = est_slg_roll / batted_mod.replace(
+                0, np.nan
+            )
+
+        # add player age
+        batter_df["age"] = pd.to_numeric(batter_df["age"], errors="coerce")
+
         # Concatenate all new columns at once to avoid fragmentation
         if new_columns:
             new_df = pd.DataFrame(new_columns, index=batter_df.index)
@@ -481,6 +529,7 @@ def get_batting_feats(df, batter_ids, pos_map):
         }
         for future in as_completed(future_to_bid):
             b_id = future_to_bid[future]
+            b_id = str(int(b_id))
             try:
                 batter_data_dict[b_id] = future.result()
             except Exception as e:
@@ -518,6 +567,9 @@ def get_batting_feats(df, batter_ids, pos_map):
             for j in range(1, 10):
                 curr_col = "batter" + str(j) + "_id" + hv
                 curr_b_id = bid_dict[curr_col]
+                # cast to string int for dict lookup
+                if curr_b_id is not None and not pd.isna(curr_b_id):
+                    curr_b_id = str(int(curr_b_id))
                 if curr_b_id in batter_data_dict.keys():
                     curr_batter_df = batter_data_dict[curr_b_id]
                     if (curr_batter_df is not None) and (curr_batter_df.shape[0] > 0):
@@ -690,16 +742,12 @@ def _fetch_positions_from_mlb_api(mlbam_ids):
 
 
 def build_position_map(batter_ids):
-    """Build a retro_id -> primary_position dict."""
-    valid_ids = [b for b in batter_ids if b and not pd.isna(b)]
-
-    # bulk lookup
-    # rev has columns: key_retro, key_mlbam, etc.
-    rev = playerid_reverse_lookup(valid_ids, key_type="retro")
-
-    # Bulk fetch positions from MLB Stats API using MLBAM IDs
-    mlbam_ids = rev["key_mlbam"].dropna().astype(int).tolist()
-    pos_by_mlbam = _fetch_positions_from_mlb_api(mlbam_ids)
-
-    rev["POS"] = rev["key_mlbam"].map(pos_by_mlbam).fillna("").str.lower()
-    return dict(zip(rev["key_retro"], rev["POS"]))
+    """Build a mlbam_id -> primary_position dict."""
+    valid_ids = [
+        str(int(b_id))
+        for b_id in batter_ids
+        if b_id is not None and not pd.isna(b_id) and str(b_id) != "nan"
+    ]
+    pos_by_mlbam = _fetch_positions_from_mlb_api(valid_ids)
+    # convert to string keys to match how IDs are stored in filenames
+    return {str(mlbam_id): pos.lower() for mlbam_id, pos in pos_by_mlbam.items()}

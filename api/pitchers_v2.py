@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from tqdm import tqdm
 
-from pybaseball import playerid_reverse_lookup, statcast_pitcher
+from pybaseball import statcast_pitcher
 
 from helpers import roll_column, strip_suffix, get_team_league_map
 
@@ -26,8 +26,16 @@ def process_pitching_data(df):
     Returns:
       DataFrame with pitching and bullpen features
     """
-    start_pitchers_h = [p for p in df.starting_pitcher_id_h.unique() if p is not None]
-    start_pitchers_v = [p for p in df.starting_pitcher_id_v.unique() if p is not None]
+    start_pitchers_h = [
+        str(int(p))
+        for p in df.starting_pitcher_id_h.unique()
+        if p is not None and not pd.isna(p) and str(p) != "nan"
+    ]
+    start_pitchers_v = [
+        str(int(p))
+        for p in df.starting_pitcher_id_v.unique()
+        if p is not None and not pd.isna(p) and str(p) != "nan"
+    ]
     start_pitchers_all = np.union1d(start_pitchers_h, start_pitchers_v)
 
     # step 1: get pitching data for all starting pitchers and store to csv
@@ -48,31 +56,26 @@ def load_pitching_data(start_pitchers_all):
     Much faster than scraping Retrosheet and Baseball-Reference.
     """
     valid_pitcher_ids = [
-        p_id for p_id in start_pitchers_all if p_id and not pd.isna(p_id)
+        str(int(p_id))
+        for p_id in start_pitchers_all
+        if p_id is not None and not pd.isna(p_id) and str(p_id) != "nan"
     ]
     if not valid_pitcher_ids:
         return
 
-    # Bulk lookup up front
-    rev = playerid_reverse_lookup(valid_pitcher_ids, key_type="retro")
-    mlbam_map = dict(zip(rev["key_retro"], rev["key_mlbam"].astype(int)))
-
     def _fetch_and_store_pitcher(p_id):
         fname_out = "data/pitch/pitching_data_" + p_id + ".csv"
-        mlbam_id = mlbam_map.get(p_id)
-        if not mlbam_id:
-            return f"Skipping pitcher {p_id} - could not convert to MLBAM ID"
 
         start_date = f"{YEAR}-03-01"
         end_date = f"{YEAR}-11-30"
         try:
-            df_season = statcast_pitcher(start_date, end_date, mlbam_id)
+            df_season = statcast_pitcher(start_date, end_date, p_id)
             if df_season.empty:
-                return f"No data found for pitcher {p_id} (MLBAM: {mlbam_id})"
+                return f"No data found for pitcher {p_id}"
 
             df_season = transform_statcast_pitcher(df_season)
             if not os.path.exists(fname_out):
-                df_historical = get_historical_pitching_data(mlbam_id)
+                df_historical = get_historical_pitching_data(p_id)
                 df_temp = pd.concat((df_historical, df_season))
             else:
                 df_existing = pd.read_csv(fname_out)
@@ -253,7 +256,7 @@ def get_historical_pitching_data(mlbam_id):
             df_year = statcast_pitcher(start_date, end_date, mlbam_id)
             if not df_year.empty:
                 all_data.append(transform_statcast_pitcher(df_year))
-            time.sleep(0.1)  # Be nice to the API
+            time.sleep(0.1)
         except Exception as e:
             print(f"Error fetching data for year {year}: {e}")
             continue
@@ -266,6 +269,8 @@ def get_historical_pitching_data(mlbam_id):
 def load_and_process_pitch_df(p_id, filepath=""):
     if not p_id:
         return pd.DataFrame()
+
+    p_id = str(int(p_id))
 
     fname = filepath + "pitching_data_" + p_id + ".csv"
     pitch_df = pd.DataFrame()

@@ -11,6 +11,7 @@ warnings.simplefilter("ignore", category=UserWarning)
 warnings.simplefilter("ignore", category=FutureWarning)
 
 import pandas as pd
+import requests
 
 warnings.filterwarnings("ignore", category=pd.errors.PerformanceWarning)
 # Set options to display all columns and adjust the width
@@ -18,10 +19,11 @@ pd.set_option("display.max_columns", None)  # Display all columns
 pd.set_option("display.width", 0)  # Automatically adjust to terminal width
 
 from datetime import date, timedelta
+import pytz
 import pickle
 
 from api.teams import generate_team_window_features
-from api.lineups import get_lineups, get_run_total_feats
+from api.lineups_v2 import get_lineups, get_run_total_feats
 from api.odds import (
     get_over_odds,
     get_under_odds,
@@ -42,9 +44,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-REFRESH_DATA = 1
 DISPLAY_EDGE_ONLY = 1
 EDGE_THRESHOLD = 4.0
+
+# Force Refresh Data
+REFRESH_DATA = int(os.environ.get("REFRESH_DATA", 0))
 
 # X essentials
 ACCESS_KEY = os.environ["X_ACCESS_KEY"]
@@ -60,6 +64,7 @@ TOMORROW_GAMES = int(os.environ["TOMORROW_GAMES"])
 WINS_MODEL_FILE = "models/win_model_2026v1.pkl"
 RUNS_MODEL_FILE = "models/runs_scored_model_v1.pkl"
 HR_MODEL_FILE = "models/homerun_model_2026v1.pkl"
+
 
 # Set of features we will predict on
 RUNS_SCORED_FEAT_SET = [
@@ -175,7 +180,28 @@ HR_FEAT_SET = [
     "opp_FB_perc_35",
     "opp_FB_perc_75",
     "park_hr_factor",
+    "age",
+    # "bat_speed_30",
+    # "bat_speed_75",
+    # "bat_speed_162",
+    "est_woba_30",
+    "est_woba_75",
+    "est_woba_162",
+    "est_slg_30",
+    "est_slg_75",
+    "est_slg_162",
 ]
+
+
+def format_game_time(utc_str):
+    """Convert ISO UTC game time to CST display string."""
+    try:
+        utc_dt = pd.to_datetime(utc_str, utc=True)
+        cst = pytz.timezone("America/Chicago")
+        cst_dt = utc_dt.astimezone(cst)
+        return cst_dt.strftime("%-I:%M %p CST")
+    except Exception:
+        return utc_str
 
 
 def predict_winner(X):
@@ -194,8 +220,9 @@ def predict_runs_scored(X):
 
 
 def predict_homerun_hitter(X):
-    with open(HR_MODEL_FILE, "rb") as pickle_file:
-        model = pickle.load(pickle_file)
+    with open(HR_MODEL_FILE, "rb") as f:
+        artifact = pickle.load(f)
+    model = artifact["model"]
     probs = model.predict_proba(X)[:, 1]
     return probs
 
@@ -236,6 +263,30 @@ def filter_games_by_edge(df):
     return filtered_df
 
 
+def get_player_name_map(mlbam_ids):
+    """Fetch player names from MLB Stats API."""
+    name_map = {}
+    chunk_size = 200
+    ids = [i for i in mlbam_ids if i is not None]
+    for i in range(0, len(ids), chunk_size):
+        chunk = ids[i : i + chunk_size]
+        try:
+            resp = requests.get(
+                "https://statsapi.mlb.com/api/v1/people",
+                params={
+                    "personIds": ",".join(str(x) for x in chunk),
+                    "fields": "people,id,fullName",
+                },
+                timeout=15,
+            )
+            resp.raise_for_status()
+            for person in resp.json().get("people", []):
+                name_map[str(person["id"])] = person["fullName"]
+        except Exception as e:
+            print(f"Error fetching names: {e}")
+    return name_map
+
+
 def print_todays_home_victory_preds(df):
     if DISPLAY_EDGE_ONLY == 1:
         filtered_df = filter_games_by_edge(df)
@@ -258,6 +309,7 @@ def print_todays_home_victory_preds(df):
             "edge_v": "Edge (V)",
         }
     )
+    filtered_df["Time"] = filtered_df["Time"].apply(format_game_time)
     filtered_df.sort_values("Date", ascending=True, inplace=True)
     cols = [
         "Date",
@@ -278,38 +330,43 @@ def print_todays_home_victory_preds(df):
 
 
 def print_todays_homerun_preds(df):
-    print(df)
-    filtered_df = df.copy()
-    filtered_df = filtered_df.rename(
+    df = df.copy()
+
+    # filter to top predictions only
+    df = df[df["hr_prob"] >= 0.10].copy()
+    df = df.sort_values("hr_prob", ascending=False)
+
+    df = df.rename(
         columns={
             "date_dblhead": "Date",
-            "game_time": "Time",
-            "temp": "Temp",
-            "humidity": "Humidity",
-            "b_id": "Player",
             "team": "Team",
             "opponent": "Opponent",
-            "park_hr_factor": "Park HR Factor",
-            "favorable_platoon": "Platoon",
-            "slot": "Batting Slot",
-            "hit_hr": "Prediction",
+            "slot": "Slot",
+            "stand": "Bats",
+            "opp_throws": "P Throws",
+            "park_hr_factor": "Park",
+            "temp": "Temp",
+            "humidity": "Humidity",
+            "hr_prob": "HR Prob",
+            "player_name": "Player",
         }
     )
-    filtered_df.sort_values("Date", ascending=True, inplace=True)
+
     cols = [
-        "Date",
-        "Time",
-        "Temp",
-        "Humidity",
         "Player",
         "Team",
         "Opponent",
-        "Park HR Factor",
-        "Platoon",
-        "Batting Slot",
-        "Prediction",
+        "Slot",
+        "Bats",
+        "P Throws",
+        "Park",
+        "Temp",
+        "Humidity",
+        "HR Prob",
     ]
-    print(f"\n{filtered_df.loc[:,cols]}")
+    cols = [c for c in cols if c in df.columns]
+    df["HR Prob"] = df["HR Prob"].map(lambda x: f"{x:.1%}")
+    print(f"\n{df[cols].to_string(index=False)}")
 
 
 def print_todays_totals_preds(df):
@@ -348,6 +405,9 @@ def handler(event, context):
 
     RUN_DATE = date.today() if TOMORROW_GAMES == 0 else date.today() + timedelta(days=1)
 
+    BATTER_DICT_FILE = f"data/daily/{RUN_DATE}_batter_dict.pkl"
+    PITCHER_DICT_FILE = f"data/daily/{RUN_DATE}_pitcher_dict.pkl"
+
     if REFRESH_DATA == 1:
         print(f"\nEmptying Data Directories")
         cleanup_directory()
@@ -357,10 +417,18 @@ def handler(event, context):
     if os.path.exists(fname) and REFRESH_DATA != 1:
         print(f"\nLoading Data From File: {fname}")
         lineup_w_pitching_batting_df = pd.read_csv(fname, index_col=False)
+        with open(BATTER_DICT_FILE, "rb") as f:
+            batter_data_dict = pickle.load(f)
+        with open(PITCHER_DICT_FILE, "rb") as f:
+            pitcher_data_dict = pickle.load(f)
 
     else:
         print("\nLoading Lineup Data")
         df = get_lineups()
+
+        if df.empty:
+            print("No lineups posted yet — try again later")
+            return {}
 
         # Add Pitching Data
         print("\nLoading Pitching Data")
@@ -375,6 +443,12 @@ def handler(event, context):
         print(f"\nSaving Lineup Data to CSV")
         lineup_w_pitching_batting_df.to_csv(fname, index=False)
 
+        # Save Dicts
+        with open(BATTER_DICT_FILE, "wb") as f:
+            pickle.dump(batter_data_dict, f)
+        with open(PITCHER_DICT_FILE, "wb") as f:
+            pickle.dump(pitcher_data_dict, f)
+
     print(f"\nLoading Team Data")
     lineup_w_pitching_batting_team_df = generate_team_window_features(
         lineup_w_pitching_batting_df
@@ -387,7 +461,7 @@ def handler(event, context):
     )
 
     print(f"\nGetting Features for Run Total Predictions")
-    df_runs = get_run_total_feats(lineup_w_pitching_batting_team_weather_df)
+    df_runs = get_run_total_feats(lineup_w_pitching_batting_team_df)
     df_runs.drop_duplicates(subset=["date_dblhead", "team_h", "team_v"], inplace=True)
     df_runs.reset_index(drop=True, inplace=True)
 
@@ -419,10 +493,6 @@ def handler(event, context):
         lineup_w_pitching_batting_team_weather_df["prob"],
     ) = predict_winner(lineup_w_pitching_batting_df.loc[:, HOME_VICTORY_FEAT_SET])
 
-    # do not believe these fields are needed in output
-    # lineup_w_pitching_batting_team_weather_df['moneyline_value_line_h'] = lineup_w_pitching_batting_team_weather_df.apply(lambda row: line_to_bet(row['prob']), axis=1)
-    # lineup_w_pitching_batting_team_weather_df['moneyline_value_line_v'] = lineup_w_pitching_batting_team_weather_df.apply(lambda row: line_to_bet(1 - row['prob']), axis=1)
-
     # calculate our edge
     lineup_w_pitching_batting_team_weather_df["edge_h"] = (
         lineup_w_pitching_batting_team_weather_df.apply(
@@ -444,13 +514,41 @@ def handler(event, context):
     lineup_w_pitching_batting_team_weather_df.reset_index(drop=True, inplace=True)
     print_todays_home_victory_preds(lineup_w_pitching_batting_team_weather_df)
 
-    hr_df = process_homerun_data(
+    df_hr = process_homerun_data(
         lineup_w_pitching_batting_team_weather_df,
         batter_data_dict,
         pitcher_data_dict,
     )
-    hr_probs = predict_homerun_hitter(hr_df.loc[:, HR_FEAT_SET])
-    # print_todays_homerun_preds(hr_df)
+
+    if not df_hr.empty:
+        hr_probs = predict_homerun_hitter(df_hr.loc[:, HR_FEAT_SET])
+        NAME_MAP_FILE = f"data/daily/{RUN_DATE}_name_map.pkl"
+
+        """
+        print(f"HR df shape: {df_hr.shape}")
+        print(f'Sample b_ids: {df_hr["b_id"].head()}')
+
+        print(f"hr_probs length: {len(hr_probs)}")
+        print(f"hr_probs sample: {hr_probs[:5]}")
+
+        print(f"Max HR prob: {max(hr_probs):.3f}")
+        print(f"Mean HR prob: {sum(hr_probs)/len(hr_probs):.3f}")
+
+        print(df_hr[HR_FEAT_SET].describe())
+        """
+
+        if os.path.exists(NAME_MAP_FILE):
+            with open(NAME_MAP_FILE, "rb") as f:
+                name_map = pickle.load(f)
+        else:
+            name_map = get_player_name_map(df_hr["b_id"].unique().tolist())
+            with open(NAME_MAP_FILE, "wb") as f:
+                pickle.dump(name_map, f)
+        df_hr["hr_prob"] = hr_probs
+        df_hr["player_name"] = df_hr["b_id"].map(name_map)
+        print_todays_homerun_preds(df_hr)
+    else:
+        print("HR df is empty — no batter rows built")
 
     # not printing df output until o/u preds are fixed
     # print_todays_totals_preds(df_runs)
@@ -486,7 +584,7 @@ def handler(event, context):
         ],
     ].to_csv(f"data/results/{RUN_DATE}_run_total_preds.csv", index=False)
     """
-    hr_df.to_csv(f"data/results/{RUN_DATE}_homerun_preds.csv", index=False)
+    df_hr.to_csv(f"data/results/{RUN_DATE}_homerun_preds.csv", index=False)
 
     # post_to_X()
     return {}

@@ -19,7 +19,6 @@ from xgboost import XGBClassifier
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.metrics import roc_auc_score, brier_score_loss
-import joblib
 import pickle
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -73,16 +72,16 @@ FEATURE_COLS = [
     "opp_FB_perc_35",
     "opp_FB_perc_75",
     "park_hr_factor",
-    "bat_speed_30",
-    "bat_speed_75",
-    "bat_speed_162",
+    "age",
+    # "bat_speed_30",
+    # "bat_speed_75",
+    # "bat_speed_162",
     "est_woba_30",
     "est_woba_75",
     "est_woba_162",
     "est_slg_30",
     "est_slg_75",
     "est_slg_162",
-    "age",
 ]
 
 PARK_HR_FACTORS = {
@@ -214,7 +213,8 @@ def transform_statcast_to_game_level(df):
 
         # bat speed — average over all swings in the game
         bat_speed_vals = group["bat_speed"].dropna()
-        bat_speed = float(bat_speed_vals.mean()) if not bat_speed_vals.empty else np.nan
+        n_swings = len(bat_speed_vals)
+        bat_speed = float(bat_speed_vals.sum())
 
         # age — consistent within a game so just take first value
         age = (
@@ -251,9 +251,6 @@ def transform_statcast_to_game_level(df):
         sweet_spots = int(
             ((batted["launch_angle"] >= 8) & (batted["launch_angle"] <= 32)).sum()
         )
-
-        # in transform_statcast_to_game_level
-        n_swings = int(group["bat_speed"].notna().sum())
 
         # launch_speed_angle codes:
         # 6 = Barrel, 5 = Solid Contact, 4 = Flare/Burner,
@@ -310,6 +307,10 @@ def pull_statcast_for_player_year(mlbam_id, year):
             return None
         return transform_statcast_to_game_level(df)
     except Exception as e:
+        err_str = str(e)
+        # suppress noisy but non-fatal parsing errors
+        if "tokenizing" in err_str or "Expected" in err_str:
+            return None
         print(f"    Error pulling {mlbam_id} / {year}: {e}")
         return None
 
@@ -361,7 +362,7 @@ def build_all_player_games(start_year=START_YEAR, end_year=END_YEAR, min_pa=MIN_
                 all_player_games[mlbam_id] = result
 
             # save checkpoint every 50 batters
-            if i % 50 == 0:
+            if i % 50 == 0 or len(remaining) < 50:
                 with open(checkpoint_path, "wb") as f:
                     pickle.dump(all_player_games, f)
 
@@ -401,6 +402,7 @@ def add_batter_rolling_features(df):
         "HR_vs_L",
         "AB_vs_L",
         "bat_speed",
+        "n_swings",
         "est_woba",
         "est_slg",
     ]
@@ -442,6 +444,9 @@ def add_batter_rolling_features(df):
         hr_l = g("HR_vs_L")
         ab_l = g("AB_vs_L")
         n_swings = g("n_swings")
+        bat_speed = g("bat_speed")
+        est_woba = g("est_woba")
+        est_slg = g("est_slg")
 
         ab_denom = ab.replace(0, np.nan)
         ab_r_denom = ab_r.replace(0, np.nan)
@@ -460,9 +465,9 @@ def add_batter_rolling_features(df):
         df[f"HARDHIT_{winsize}"] = hh / batted_denom
         df[f"SWSPOT_{winsize}"] = ss / batted_denom
         df[f"BARREL_{winsize}"] = bar / batted_denom
-        df[f"bat_speed_{winsize}"] = g("bat_speed") / n_swings_denom
-        df[f"est_woba_{winsize}"] = g("est_woba") / batted_denom
-        df[f"est_slg_{winsize}"] = g("est_slg") / batted_denom
+        df[f"bat_speed_{winsize}"] = bat_speed / n_swings_denom
+        df[f"est_woba_{winsize}"] = est_woba / batted_denom
+        df[f"est_slg_{winsize}"] = est_slg / batted_denom
 
     return df
 
@@ -500,10 +505,19 @@ def compute_training_rows(all_player_games, pitcher_dict):
                 **pitcher_feats,
             }
 
-            p_throws = str(current.get("p_throws", ""))
-
             for winsize in WINDOWS_BAT:
-                for stem in ["BARREL", "EV", "HARDHIT", "SWSPOT", "SLG", "OBP", "OBS"]:
+                for stem in [
+                    "BARREL",
+                    "EV",
+                    "HARDHIT",
+                    "SWSPOT",
+                    "SLG",
+                    "OBP",
+                    "OBS",
+                    "bat_speed",
+                    "est_woba",
+                    "est_slg",
+                ]:
                     row[f"{stem}_{winsize}"] = prior.get(f"{stem}_{winsize}", np.nan)
                 row[f"HR_per_PA_{winsize}"] = prior.get(f"HR_per_PA_{winsize}", np.nan)
                 row[f"HR_per_PA_vs_R_{winsize}"] = prior.get(
@@ -612,7 +626,7 @@ def pull_statcast_for_pitcher_year(mlbam_id, year):
         return None
 
 
-def get_qualified_starter_ids(min_gs=10, start_year=START_YEAR, end_year=END_YEAR):
+def get_qualified_starter_ids(start_year=START_YEAR, end_year=END_YEAR, min_gs=10):
     """Get MLBAM IDs for pitchers with significant starts from MLB Stats API."""
     all_ids = set()
     for year in range(start_year, end_year + 1):
@@ -645,14 +659,12 @@ def build_pitcher_dict(start_year=START_YEAR, end_year=END_YEAR, min_gs=10):
 
     print("Fetching qualified starter list from MLB Stats API...")
     qualified = get_qualified_starter_ids(
-        min_gs=min_gs, start_year=start_year, end_year=end_year
+        start_year=start_year, end_year=end_year, min_gs=min_gs
     )
     print(f"{len(qualified)} qualified starting pitchers")
 
     # resume from checkpoint if exists
     if os.path.exists(checkpoint_path):
-        import pickle
-
         with open(checkpoint_path, "rb") as f:
             pitcher_dict = pickle.load(f)
         print(f"Resumed from checkpoint — {len(pitcher_dict)} pitchers already pulled")
@@ -687,7 +699,7 @@ def build_pitcher_dict(start_year=START_YEAR, end_year=END_YEAR, min_gs=10):
             if result is not None:
                 pitcher_dict[mlbam_id] = result
 
-            if i % 50 == 0:
+            if i % 50 == 0 or len(remaining) < 50:
                 with open(checkpoint_path, "wb") as f:
                     pickle.dump(pitcher_dict, f)
 
@@ -728,7 +740,15 @@ def get_pitcher_feats(mlbam_id, game_date, pitcher_dict):
 
 def check_feature_coverage(hr_df):
     print("\n── Feature Coverage ──────────────────────────────")
-    contact_cols = ["BARREL_30", "EV_30", "HARDHIT_30", "SWSPOT_30"]
+    contact_cols = [
+        "BARREL_30",
+        "EV_30",
+        "HARDHIT_30",
+        "SWSPOT_30",
+        "bat_speed_30",
+        "est_woba_30",
+        "est_slg_30",
+    ]
     has_contact = hr_df[contact_cols].notna().all(axis=1).sum()
     print(
         f"Rows with contact quality data: "
@@ -745,7 +765,8 @@ def train_model(hr_df):
     for col in FEATURE_COLS:
         if col not in hr_df.columns:
             hr_df[col] = 0
-        hr_df[col] = hr_df[col].fillna(0)
+        if col not in ["bat_speed_30", "bat_speed_75", "bat_speed_162"]:
+            hr_df[col] = hr_df[col].fillna(0)
 
     # drop rows missing core batter features
     core_cols = ["HR_per_PA_30", "SLG_30", "OBP_30"]
@@ -818,7 +839,8 @@ def train_model(hr_df):
     calibrated.fit(X, y)
 
     os.makedirs(os.path.dirname(MODEL_PATH), exist_ok=True)
-    joblib.dump({"model": calibrated, "features": FEATURE_COLS}, MODEL_PATH)
+    with open(MODEL_PATH, "wb") as f:
+        pickle.dump({"model": calibrated, "features": FEATURE_COLS}, f)
     print(f"Model saved to {MODEL_PATH}")
 
     return calibrated

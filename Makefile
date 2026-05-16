@@ -32,6 +32,9 @@ test-cov:
 run:
 	python3.11 pipeline.py
 
+run\:force:
+	REFRESH_DATA=1 python3.11 pipeline.py
+
 # Run only passing tests (useful after fixes)
 test-failed:
 	python3.11 -m pytest tests/ --lf
@@ -39,6 +42,19 @@ test-failed:
 # Model Training
 train\:homerun:
 	python3.11 train/homerun_model_training.py
+
+# Backup Training Data
+backup\:cache:
+	cp data/hr_training_data.csv data/hr_training_data_backup.csv
+
+# Backup Model File
+backup\:model:
+	cp models/homerun_model_2026v1.pkl models/homerun_model_2026v1_backup.pkl
+
+# Generate Backups
+backup:
+	make backup\:cache
+	make backup\:model
 
 # Help
 help:
