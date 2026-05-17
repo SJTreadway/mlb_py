@@ -16,7 +16,7 @@ warnings.filterwarnings("ignore", category=pd.errors.PerformanceWarning)
 pd.set_option("display.max_columns", None)  # Display all columns
 pd.set_option("display.width", 0)  # Automatically adjust to terminal width
 
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime, timezone
 import pytz
 import pickle
 
@@ -397,6 +397,15 @@ def print_todays_homerun_preds(df):
             axis=1,
         )
 
+    df["Platoon"] = df.apply(
+        lambda r: (
+            r.get("HR_per_PA_vs_R_162")
+            if r.get("opp_throws") == "R"
+            else r.get("HR_per_PA_vs_L_162")
+        ),
+        axis=1,
+    )
+
     df = df.rename(
         columns={
             "date_dblhead": "Date",
@@ -413,7 +422,7 @@ def print_todays_homerun_preds(df):
             "american_odds": "Odds",
             "implied_prob": "Implied",
             "edge": "Edge",
-            "book": "Book",
+            # "book": "Book",
         }
     )
 
@@ -441,6 +450,7 @@ def print_todays_homerun_preds(df):
         "SWSPOT_162": "SWSPOT%",
         "HR_per_PA_162": "HR/PA",
         "opp_FB_perc_35": "FB%",
+        "Platoon": "Platoon",
     }
     for k, v in pct_cols.items():
         if k in df.columns:
@@ -468,14 +478,13 @@ def print_todays_homerun_preds(df):
         "Humidity",
         "Wind",
         "Wind Out",
-        "Bats",
-        "P_Throws",
+        "Platoon",
         "FB%",
         "P-HR/BF",
         "HR Prob",
         "Odds",
         "Edge",
-        "Book",
+        # "Book",
     ]
     cols = [c for c in cols if c in df.columns]
     df["hr_prob_numeric"] = df["HR Prob"]  # save numeric before formatting
@@ -549,7 +558,13 @@ def handler(event, context):
 
     print(f"\nGetting Starting Lineups for {RUN_DATE}")
     fname = f"data/daily/{RUN_DATE}_lineup_data.csv"
-    if os.path.exists(fname) and REFRESH_DATA != 1:
+    files_exist = (
+        os.path.exists(fname)
+        and os.path.exists(BATTER_DICT_FILE)
+        and os.path.exists(PITCHER_DICT_FILE)
+    )
+
+    if files_exist and REFRESH_DATA != 1:
         print(f"\nLoading Data From File: {fname}")
         lineup_w_pitching_batting_df = pd.read_csv(fname, index_col=False)
         with open(BATTER_DICT_FILE, "rb") as f:
@@ -647,6 +662,15 @@ def handler(event, context):
     )
 
     lineup_w_pitching_batting_team_weather_df.reset_index(drop=True, inplace=True)
+    now = datetime.now(timezone.utc)
+    lineup_w_pitching_batting_team_weather_df = (
+        lineup_w_pitching_batting_team_weather_df[
+            pd.to_datetime(
+                lineup_w_pitching_batting_team_weather_df["game_time"], utc=True
+            )
+            > now
+        ].copy()
+    )
     wins_display_df = print_todays_home_victory_preds(
         lineup_w_pitching_batting_team_weather_df
     )
@@ -656,6 +680,8 @@ def handler(event, context):
         batter_data_dict,
         pitcher_data_dict,
     )
+
+    hr_display_df, hr_bets_df = pd.DataFrame(), pd.DataFrame()
 
     if not df_hr.empty:
         hr_probs = predict_homerun_hitter(df_hr.loc[:, HR_FEAT_SET])
@@ -674,12 +700,13 @@ def handler(event, context):
     else:
         print("\nHR df is empty — no batter rows built")
 
-    display_dashboard(
-        hr_df=hr_display_df,  # your formatted top 7 HR df
-        wins_df=wins_display_df,  # your formatted wins df
-        hr_bets_df=hr_bets_df,  # your formatted bets df
-        run_date=str(RUN_DATE),
-    )
+    if not hr_display_df.empty and not hr_bets_df.empty and not wins_display_df.empty:
+        display_dashboard(
+            hr_df=hr_display_df,  # your formatted top 7 HR df
+            wins_df=wins_display_df,  # your formatted wins df
+            hr_bets_df=hr_bets_df,  # your formatted bets df
+            run_date=str(RUN_DATE),
+        )
 
     # not printing df output until o/u preds are fixed
     # print_todays_totals_preds(df_runs)

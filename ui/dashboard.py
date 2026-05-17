@@ -148,6 +148,7 @@ def display_dashboard(hr_df, wins_df, hr_bets_df, run_date):
         "SWSPOT%": lambda v: _stat_color("SWSPOT%", v),
         "HR/PA": lambda v: _stat_color("HR/PA", v),
         "FB%": lambda v: _stat_color("FB%", v),
+        "Platoon": lambda v: _stat_color("HR/PA", v),  # reuse HR/PA thresholds
     }
     wins_colored = {
         "Edge (H)": _edge_color,
@@ -163,6 +164,7 @@ def display_dashboard(hr_df, wins_df, hr_bets_df, run_date):
         "SWSPOT%": lambda v: _stat_color("SWSPOT%", v),
         "HR/PA": lambda v: _stat_color("HR/PA", v),
         "FB%": lambda v: _stat_color("FB%", v),
+        "Platoon": lambda v: _stat_color("HR/PA", v),  # reuse HR/PA thresholds
     }
 
     hr_table = _build_table(hr_df, hr_colored)
