@@ -18,14 +18,21 @@ mlb_py/
 │   ├── lineups.py           # Lineup construction and features
 │   ├── teams.py             # Team-level aggregations
 │   ├── odds.py              # Betting odds integration
+│   ├── homerun.py           # Homerun prediction feature engineering
+│   ├── weather.py           # Weather data for game-day conditions
 │   ├── batters.py           # ⛔ LEGACY: Web scraping (deprecated)
 │   └── pitchers.py          # ⛔ LEGACY: Web scraping (deprecated)
+├── train/                    # Model training scripts
+│   └── train_homerun_model.py  # Homerun model training pipeline
+├── ui/                       # Frontend dashboards
+│   └── dashboard.py         # HTML dashboard generator
 ├── tests/                    # Unit tests
 │   ├── test_batters_v2.py   # Tests for API version
 │   ├── test_pitchers_v2.py  # Tests for API version
 │   ├── test_lineups.py
 │   ├── test_teams.py
 │   ├── test_odds.py
+│   ├── test_homerun.py      # Tests for HR prediction
 │   └── test_pipeline.py
 ├── data/                     # Local data storage (gitignored)
 │   ├── bat/                 # Batter historical data
@@ -33,6 +40,9 @@ mlb_py/
 │   ├── daily/               # Daily game data
 │   └── results/             # Prediction outputs
 ├── models/                   # Trained ML models (gitignored)
+│   ├── homerun_model_2026v1.pkl  # XGBoost HR prediction model
+│   ├── win_model_2026v1.pkl      # Game winner model
+│   └── runs_scored_model_v1.pkl  # Runs totals model
 ├── helpers.py               # Utility functions
 ├── pipeline.py              # Main prediction pipeline
 ├── Makefile                # Build commands
@@ -70,8 +80,14 @@ mlb_py/
 
 ### Models
 
-1. **Home Victory Model** - Predicts game winner
+1. **Home Victory Model** - Predicts game winner (RandomForest, trained on team/bullpen/lineup features)
 2. **Runs Scored Model** - Predicts total runs (over/under)
+3. **Homerun Prediction Model** - Per-batter HR probability using XGBoost, trained on:
+   - Rolling barrel rate, exit velocity, hard-hit%, sweet-spot% (7/14/30/75/162-game windows)
+   - Rolling HR/PA, SLG, OBP, OBS, estimated wOBA/SLG
+   - Platoon splits (HR/PA vs RHP / LHP)
+   - Pitcher features: HR/BF and FB% (10/35/75-game windows)
+   - Park HR factor, weather (temp, humidity, wind), home/away, age, days rest
 
 ## Installation
 
@@ -97,7 +113,9 @@ pip install -r requirements.txt
 - **MLB-StatsAPI** - Official MLB stats and schedules
 - **pandas** - Data manipulation
 - **scikit-learn** - Machine learning models
+- **xgboost** - Gradient boosting for HR prediction model
 - **numpy** - Numerical computations
+- **matplotlib** - Calibration plots for model evaluation
 
 ## Environment Setup
 
@@ -177,25 +195,29 @@ make help              # Show all commands
 - Generates predictions for each game:
   - Home team win probability
   - Total runs scored prediction
+  - Homerun probability per batter (XGBoost with isotonic calibration)
 - Calculates betting edges against market lines
 
 ### 4. Output
 - Saves predictions to `data/results/`
 - Displays formatted results in console
+- Opens interactive HTML dashboard in browser with color-coded HR, win, and value-bet tables
 - Optional: Posts to Twitter/X
 
 ## Pipeline Flow
 
 ```
-1. Get Schedule → Fetch today's games from MLB API
-2. Load Pitchers → Download pitcher stats (Statcast API)
-3. Load Batters → Download batter stats (Statcast API)
-4. Build Lineups → Construct lineups and features
-5. Team Stats → Aggregate team-level metrics
-6. Bullpen Data → Calculate relief pitcher stats
-7. Predict → Run ML models
-8. Odds → Compare to market lines
-9. Output → Save and display results
+ 1. Get Schedule → Fetch today's games from MLB API
+ 2. Load Pitchers → Download pitcher stats (Statcast API)
+ 3. Load Batters → Download batter stats (Statcast API)
+ 4. Build Lineups → Construct lineups and features
+ 5. Team Stats → Aggregate team-level metrics
+ 6. Bullpen Data → Calculate relief pitcher stats
+ 7. Win/Runs Predict → Run win & totals ML models
+ 8. HR Predict → Build per-batter HR features, run XGBoost model
+ 9. Dashboard → Generate HTML dashboard with color-coded tables
+10. Odds → Compare predictions to market lines
+11. Output → Save results and display
 ```
 
 ## File Structure Details
@@ -226,6 +248,15 @@ make help              # Show all commands
 - `load_and_process_pitch_df()` - Calculate rolling features
 - `get_bullpen_data()` - Calculate bullpen stats (includes debug mode!)
 
+**`api/homerun.py`** - Homerun prediction features
+- `process_homerun_data()` - Build feature matrix for HR model
+- Per-batter rolling stats, pitcher HR/FB rates, park factors, weather
+- Platoon splits for batter vs pitcher handedness
+
+**`api/weather.py`** - Weather data for game-day conditions
+- Stadium coordinates, dome detection, OpenWeather API integration
+- Wind-out calculation relative to stadium orientation
+
 **`api/lineups.py`** - Lineup construction
 - `get_lineups()` - Main lineup function
 - `get_run_total_feats()` - Features for totals model
@@ -240,6 +271,28 @@ make help              # Show all commands
 - `get_over_odds()` / `get_under_odds()` - Fetch odds
 - `calculate_edge()` - Calculate betting edge
 - `line_to_bet()` - Convert probability to line
+- `get_hr_prop_odds()` - Fetch HR prop bet odds from market
+- `get_best_hr_odds()` - Get best available HR odds across books
+- `match_hr_odds()` - Match odds to player predictions
+
+### Training
+
+**`train/train_homerun_model.py`** - Full training pipeline for the HR model
+- Pulls Statcast data for qualified batters (2020-2025, min 150 PA) and starting pitchers
+- Computes rolling features at multiple window sizes (7/14/30/75/162/350)
+- Trains XGBoost classifier with TimeSeriesSplit CV and isotonic calibration
+- Fetches weather data and park factors as additional features
+- Saves calibrated model with feature list to `models/homerun_model_2026v1.pkl`
+
+### UI / Dashboard
+
+**`ui/dashboard.py`** - Browser-based predictions dashboard
+- `display_dashboard()` - Generates a self-contained HTML page with three sections:
+  - **HR Edge Plays** — Filtered betting opportunities with positive edge
+  - **Top Home Run Predictions** — Highest-probability HR candidates
+  - **Game Winner Predictions** — Win probability and edges
+- Color-coded cells (green/red/yellow) based on league-average thresholds and edge strength
+- Dark theme, opens automatically in the default browser
 
 ### Utilities
 
