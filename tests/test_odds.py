@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 import pytest
@@ -15,9 +16,17 @@ from api.odds import (
     get_under_odds,
     get_total_line,
     get_money_line_price,
+    get_spread_line,
+    get_spread_odds,
     line_to_bet,
     calculate_edge,
-    line_to_prob
+    line_to_prob,
+    prob_to_line,
+    get_stripped_team_val,
+    extract_total_odds,
+    normalize_name,
+    match_hr_odds,
+    get_best_hr_odds,
 )
 
 
@@ -131,7 +140,7 @@ class TestGetOverOdds:
     def test_returns_value(self, mock_get_results):
         """Test that function returns a value."""
         mock_get_results.return_value = {
-            'New York Yankees': {'over_under_price_o': -110}
+            'Yankees': {'over_under_price_o': -110}
         }
         
         result = get_over_odds('New York Yankees')
@@ -153,7 +162,7 @@ class TestGetUnderOdds:
     def test_returns_value(self, mock_get_results):
         """Test that function returns a value."""
         mock_get_results.return_value = {
-            'New York Yankees': {'over_under_price_u': -110}
+            'Yankees': {'over_under_price_u': -110}
         }
         
         result = get_under_odds('New York Yankees')
@@ -167,7 +176,7 @@ class TestGetTotalLine:
     def test_returns_value(self, mock_get_results):
         """Test that function returns a value."""
         mock_get_results.return_value = {
-            'New York Yankees': {'over_under_line': 8.5}
+            'Yankees': {'over_under_line': 8.5}
         }
         
         result = get_total_line('New York Yankees')
@@ -181,11 +190,297 @@ class TestGetMoneyLinePrice:
     def test_returns_value(self, mock_get_results):
         """Test that function returns a value."""
         mock_get_results.return_value = {
-            'New York Yankees': {'moneyline_price': -150}
+            'Yankees': {'moneyline_price': -150}
         }
         
         result = get_money_line_price('New York Yankees')
         assert result == -150
+
+
+class TestProbToLine:
+    """Tests for probability to line conversion."""
+
+    def test_favorite_probability(self):
+        """Test converting favorite probability to negative line."""
+        result = prob_to_line(0.60)
+        assert result is not None
+        assert result < 0
+
+    def test_underdog_probability(self):
+        """Test converting underdog probability to positive line."""
+        result = prob_to_line(0.40)
+        assert result is not None
+        assert result > 0
+
+    def test_even_probability(self):
+        """Test 50% probability returns even money."""
+        result = prob_to_line(0.50)
+        assert result == 100
+
+    def test_invalid_probability_zero(self):
+        """Test probability of 0 returns None."""
+        result = prob_to_line(0)
+        assert result is None
+
+    def test_invalid_probability_one(self):
+        """Test probability of 1 returns None."""
+        result = prob_to_line(1)
+        assert result is None
+
+    def test_invalid_probability_negative(self):
+        """Test negative probability returns None."""
+        result = prob_to_line(-0.5)
+        assert result is None
+
+    def test_round_trip(self):
+        """Test that prob_to_line and line_to_prob are inverses."""
+        for prob in [0.25, 0.40, 0.50, 0.60, 0.75]:
+            line = prob_to_line(prob)
+            if line is not None:
+                roundtrip = line_to_prob(line)
+                assert abs(roundtrip - prob) < 0.01
+
+
+class TestGetStrippedTeamVal:
+    """Tests for team name stripping."""
+
+    def test_single_word(self):
+        """Test single word team name."""
+        assert get_stripped_team_val("Yankees") == "Yankees"
+
+    def test_two_words_last_not_sox(self):
+        """Test two words where last is not Sox/Jays."""
+        assert get_stripped_team_val("New York Yankees") == "Yankees"
+
+    def test_red_sox(self):
+        """Test Red Sox returns 'Red Sox'."""
+        assert get_stripped_team_val("Boston Red Sox") == "Red Sox"
+
+    def test_white_sox(self):
+        """Test White Sox returns 'White Sox'."""
+        assert get_stripped_team_val("Chicago White Sox") == "White Sox"
+
+    def test_blue_jays(self):
+        """Test Blue Jays returns 'Blue Jays'."""
+        assert get_stripped_team_val("Toronto Blue Jays") == "Blue Jays"
+
+    def test_single_word_sox(self):
+        """Test 'Sox' alone returns 'Sox'."""
+        assert get_stripped_team_val("Sox") == "Sox"
+
+
+class TestExtractTotalOdds:
+    """Tests for odds extraction from JSON data."""
+
+    def test_extracts_home_and_away(self):
+        """Test extraction of both home and away teams."""
+        data = json.dumps([
+            {
+                "home_team": "New York Yankees",
+                "away_team": "Boston Red Sox",
+                "commence_time": "2024-06-01T18:00:00Z",
+                "bookmakers": [
+                    {
+                        "key": "fanduel",
+                        "markets": [
+                            {
+                                "key": "totals",
+                                "outcomes": [
+                                    {"name": "Over", "point": 8.5, "price": -110},
+                                    {"name": "Under", "price": -110},
+                                ],
+                            },
+                            {
+                                "key": "spreads",
+                                "outcomes": [
+                                    {"name": "New York Yankees", "point": -1.5, "price": +150},
+                                ],
+                            },
+                            {
+                                "key": "h2h",
+                                "outcomes": [
+                                    {"name": "New York Yankees", "price": -150},
+                                    {"name": "Boston Red Sox", "price": +130},
+                                ],
+                            },
+                        ],
+                    }
+                ],
+            }
+        ])
+        result = extract_total_odds(data)
+        assert "Yankees" in result
+        assert "Red Sox" in result
+        assert result["Yankees"]["over_under_line"] == 8.5
+        assert result["Yankees"]["over_under_price_o"] == -110
+        assert result["Yankees"]["over_under_price_u"] == -110
+        assert result["Yankees"]["moneyline_price"] == -150
+        assert result["Red Sox"]["moneyline_price"] == +130
+
+    def test_no_bookmakers(self):
+        """Test game with no bookmakers."""
+        data = json.dumps([
+            {
+                "home_team": "Los Angeles Dodgers",
+                "away_team": "San Francisco Giants",
+                "commence_time": "2024-06-01T20:00:00Z",
+                "bookmakers": [],
+            }
+        ])
+        result = extract_total_odds(data)
+        assert "Dodgers" in result
+        assert result["Dodgers"]["over_under_line"] is None
+
+    def test_only_fanduel_is_used(self):
+        """Test only FanDuel bookmaker is considered."""
+        data = json.dumps([
+            {
+                "home_team": "Chicago Cubs",
+                "away_team": "St. Louis Cardinals",
+                "commence_time": "2024-06-01T18:00:00Z",
+                "bookmakers": [
+                    {
+                        "key": "draftkings",
+                        "markets": [
+                            {
+                                "key": "totals",
+                                "outcomes": [{"name": "Over", "point": 7.5, "price": -105}],
+                            }
+                        ],
+                    }
+                ],
+            }
+        ])
+        result = extract_total_odds(data)
+        assert result["Cubs"]["over_under_line"] is None
+
+    def test_empty_data(self):
+        """Test with empty JSON array."""
+        result = extract_total_odds("[]")
+        assert result == {}
+
+
+class TestNormalizeName:
+    """Tests for player name normalization."""
+
+    def test_lowercase(self):
+        """Test names are lowercased."""
+        assert normalize_name("Aaron Judge") == "aaron judge"
+
+    def test_strips_periods(self):
+        """Test periods are removed."""
+        assert normalize_name("Mike Trout Jr.") == "mike trout jr"
+
+    def test_strips_apostrophes(self):
+        """Test apostrophes are removed."""
+        assert normalize_name("D'arnaud") == "darnaud"
+
+    def test_replaces_hyphens(self):
+        """Test hyphens are replaced with spaces."""
+        assert normalize_name("Jose Ramirez Jr.") == "jose ramirez jr"
+
+
+class TestMatchHrOdds:
+    """Tests for matching HR odds to predictions."""
+
+    def test_no_odds_dataframe(self):
+        """Test with empty odds DataFrame returns pred_df unchanged."""
+        pred_df = pd.DataFrame({"player_name": ["Aaron Judge"]})
+        odds_df = pd.DataFrame()
+        result = match_hr_odds(pred_df, odds_df)
+        assert "american_odds" not in result.columns
+
+    def test_matches_by_normalized_name(self):
+        """Test matching by normalized player name."""
+        pred_df = pd.DataFrame({"player_name": ["Aaron Judge"]})
+        odds_df = pd.DataFrame({
+            "player_name": ["AARON JUDGE"],
+            "american_odds": [150],
+            "implied_prob": [0.4],
+            "book": ["fanduel"],
+        })
+        result = match_hr_odds(pred_df, odds_df)
+        assert result["american_odds"].iloc[0] == 150
+
+    def test_no_match_returns_nan(self):
+        """Test non-matching name returns NaN in odds columns."""
+        pred_df = pd.DataFrame({"player_name": ["Shohei Ohtani"]})
+        odds_df = pd.DataFrame({
+            "player_name": ["Aaron Judge"],
+            "american_odds": [150],
+            "implied_prob": [0.4],
+            "book": ["fanduel"],
+        })
+        result = match_hr_odds(pred_df, odds_df)
+        assert pd.isna(result["american_odds"].iloc[0])
+
+
+class TestGetBestHrOdds:
+    """Tests for best HR odds selection."""
+
+    def test_empty_dataframe(self):
+        """Test empty DataFrame returns empty DataFrame."""
+        result = get_best_hr_odds(pd.DataFrame())
+        assert result.empty
+
+    def test_prefers_fanduel(self):
+        """Test FanDuel odds are preferred."""
+        odds_df = pd.DataFrame({
+            "player_name": ["Aaron Judge", "Aaron Judge"],
+            "book": ["draftkings", "fanduel"],
+            "american_odds": [200, 150],
+        })
+        result = get_best_hr_odds(odds_df)
+        assert "fanduel" in result["book"].values
+
+    def test_fallback_when_no_fanduel(self):
+        """Test fallback to all books when FanDuel not available."""
+        odds_df = pd.DataFrame({
+            "player_name": ["Aaron Judge", "Shohei Ohtani"],
+            "book": ["draftkings", "draftkings"],
+            "american_odds": [200, 300],
+        })
+        result = get_best_hr_odds(odds_df)
+        assert "implied_prob" in result.columns
+        assert len(result) == 2
+
+
+class TestGetSpreadLine:
+    """Tests for spread line retrieval."""
+
+    @patch('api.odds.get_odds_results')
+    def test_returns_value(self, mock_get_results):
+        """Test that function returns a value."""
+        mock_get_results.return_value = {
+            'Yankees': {'spread_line': -1.5}
+        }
+
+        result = get_spread_line('New York Yankees')
+        assert result == -1.5
+
+    @patch('api.odds.get_odds_results')
+    def test_raises_on_missing_key(self, mock_get_results):
+        """Test that function raises KeyError when spread not found."""
+        mock_get_results.return_value = {
+            'Yankees': {'over_under_line': 8.5}
+        }
+
+        with pytest.raises(KeyError):
+            get_spread_line('New York Yankees')
+
+
+class TestGetSpreadOdds:
+    """Tests for spread odds retrieval."""
+
+    @patch('api.odds.get_odds_results')
+    def test_returns_value(self, mock_get_results):
+        """Test that function returns a value."""
+        mock_get_results.return_value = {
+            'Yankees': {'spread_price': -110}
+        }
+
+        result = get_spread_odds('New York Yankees')
+        assert result == -110
 
 
 if __name__ == '__main__':

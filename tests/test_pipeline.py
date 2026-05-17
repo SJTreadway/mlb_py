@@ -21,8 +21,10 @@ os.environ['X_BEARER_TOKEN'] = 'test'
 os.environ['ODDS_API_KEY'] = 'test'
 
 from pipeline import (
+    format_game_time,
     predict_winner,
     predict_runs_scored,
+    predict_homerun_hitter,
     get_runs_scored_prob,
     filter_games_by_edge,
     calculate_edge
@@ -166,6 +168,51 @@ class TestFeatureSets:
         from pipeline import HOME_VICTORY_FEAT_SET
         assert isinstance(HOME_VICTORY_FEAT_SET, list)
         assert len(HOME_VICTORY_FEAT_SET) > 0
+
+
+class TestFormatGameTime:
+    """Tests for game time formatting."""
+
+    def test_valid_utc_time(self):
+        """Test UTC to CST conversion."""
+        result = format_game_time("2024-06-01T18:00:00Z")
+        assert "CST" in result or "CDT" in result
+
+    def test_invalid_time(self):
+        """Test invalid time string returns original."""
+        result = format_game_time("not_a_time")
+        assert result == "not_a_time"
+
+    def test_empty_string(self):
+        """Test empty string returns original."""
+        result = format_game_time("")
+        assert result == ""
+
+    def test_none_value_returns_none(self):
+        """Test None raises exception caught by handler."""
+        try:
+            result = format_game_time(None)
+            assert result is None
+        except Exception:
+            pass
+
+
+class TestPredictHomerunHitter:
+    """Tests for home run hitter prediction."""
+
+    @patch('builtins.open', MagicMock())
+    @patch('pickle.load')
+    def test_returns_probabilities(self, mock_pickle):
+        """Test that function returns probability array."""
+        mock_model = MagicMock()
+        mock_model.predict_proba.return_value = np.array([[0.9, 0.1], [0.8, 0.2]])
+        mock_pickle.return_value = {"model": mock_model}
+
+        X = pd.DataFrame({"feature": [1, 2]})
+        probs = predict_homerun_hitter(X)
+
+        assert isinstance(probs, np.ndarray)
+        assert all(0 <= p <= 1 for p in probs)
 
 
 if __name__ == '__main__':

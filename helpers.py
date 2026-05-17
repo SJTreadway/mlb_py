@@ -23,14 +23,14 @@ def strip_suffix(col, suffix):
 def safe_int(s):
     try:
         return int(s)
-    except ValueError:
+    except (ValueError, TypeError):
         return 0
 
 
 def safe_float(s):
     try:
         return float(s)
-    except ValueError:
+    except (ValueError, TypeError):
         return 0
 
 

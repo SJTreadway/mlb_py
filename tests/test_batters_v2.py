@@ -19,6 +19,7 @@ from api.batters_v2 import (
     get_historical_batting_data,
     process_batter_df,
     get_position_defaults,
+    get_batter_ids_from_row,
 )
 
 
@@ -122,6 +123,8 @@ class TestTransformStatcastBatter:
                 "launch_speed": [95.0, np.nan, 85.0],
                 "launch_angle": [15.0, np.nan, 25.0],
                 "barrel": [0, 0, 0],
+                "estimated_woba_using_speedangle": [0.5, np.nan, 0.3],
+                "estimated_slg_using_speedangle": [0.8, np.nan, 0.5],
             }
         )
 
@@ -166,21 +169,90 @@ class TestProcessBatterDf:
                 "barrels": [0, 0, 0],
                 "ev_sum": [285.0, 285.0, 255.0],
                 "runs_scored": [1, 0, 1],
+                "HR_vs_R": [0, 0, 0],
+                "AB_vs_R": [4, 4, 4],
+                "HR_vs_L": [0, 0, 0],
+                "AB_vs_L": [0, 0, 0],
+                "est_woba": [0.0, 0.0, 0.0],
+                "est_slg": [0.0, 0.0, 0.0],
+                "age": [28.0, 28.0, 28.0],
+                "days_rest": [1.0, 1.0, 1.0],
+                "is_home": [1, 0, 1],
             }
         )
 
         os.makedirs("data/bat", exist_ok=True)
-        test_data.to_csv("data/bat/batting_data_test001.csv", index=False)
+        test_data.to_csv("data/bat/batting_data_999001.csv", index=False)
 
-        pos_map = {"test001": "rf"}
-        result = process_batter_df("test001", pos_map)
+        pos_map = {"999001": "rf"}
+        result = process_batter_df("999001", pos_map)
 
         # Cleanup
-        os.remove("data/bat/batting_data_test001.csv")
+        os.remove("data/bat/batting_data_999001.csv")
 
         assert result is not None
         assert isinstance(result, pd.DataFrame)
         assert "BATAVG_30" in result.columns
+
+
+class TestGetBatterIdsFromRow:
+    """Tests for extracting batter IDs from a row."""
+
+    def test_returns_all_batter_ids(self):
+        """Test that all 18 batter ID columns are returned."""
+        row = pd.Series(
+            {
+                "batter1_id_h": 101,
+                "batter1_id_v": 201,
+                "batter2_id_h": 102,
+                "batter2_id_v": 202,
+                "batter3_id_h": 103,
+                "batter3_id_v": 203,
+                "batter4_id_h": 104,
+                "batter4_id_v": 204,
+                "batter5_id_h": 105,
+                "batter5_id_v": 205,
+                "batter6_id_h": 106,
+                "batter6_id_v": 206,
+                "batter7_id_h": 107,
+                "batter7_id_v": 207,
+                "batter8_id_h": 108,
+                "batter8_id_v": 208,
+                "batter9_id_h": 109,
+                "batter9_id_v": 209,
+            }
+        )
+        result = get_batter_ids_from_row(row)
+        assert len(result) == 18
+        assert result["batter1_id_h"] == 101
+        assert result["batter9_id_v"] == 209
+
+    def test_handles_nan_values(self):
+        """Test that NaN values are preserved."""
+        row = pd.Series(
+            {
+                "batter1_id_h": np.nan,
+                "batter1_id_v": 201,
+                "batter2_id_h": 102,
+                "batter2_id_v": 202,
+                "batter3_id_h": 103,
+                "batter3_id_v": 203,
+                "batter4_id_h": 104,
+                "batter4_id_v": 204,
+                "batter5_id_h": 105,
+                "batter5_id_v": 205,
+                "batter6_id_h": 106,
+                "batter6_id_v": 206,
+                "batter7_id_h": 107,
+                "batter7_id_v": 207,
+                "batter8_id_h": 108,
+                "batter8_id_v": 208,
+                "batter9_id_h": 109,
+                "batter9_id_v": 209,
+            }
+        )
+        result = get_batter_ids_from_row(row)
+        assert pd.isna(result["batter1_id_h"])
 
 
 if __name__ == "__main__":

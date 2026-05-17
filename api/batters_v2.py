@@ -305,11 +305,15 @@ def get_historical_batting_data(b_id):
 
 def process_batter_df(b_id, pos_map):
     dict_def = get_position_defaults()
-    fname = f"data/bat/batting_data_{str(int(b_id))}.csv"
+    try:
+        b_id_str = str(int(b_id))
+    except (ValueError, TypeError):
+        return None
+    fname = f"data/bat/batting_data_{b_id_str}.csv"
     try:
         batter_df = pd.read_csv(fname)
         # Use the map directly — don't trust the Pos column from Statcast
-        pos = pos_map.get(str(int(b_id)), "dh")  # fallback to dh defaults if unknown
+        pos = pos_map.get(b_id_str, "dh")  # fallback to dh defaults if unknown
         if pos not in dict_def:
             pos = "dh"
 

@@ -125,12 +125,12 @@ class TestLoadAndProcessPitchDf:
         )
 
         os.makedirs("data/pitch", exist_ok=True)
-        test_data.to_csv("data/pitch/pitching_data_testp001.csv", index=False)
+        test_data.to_csv("data/pitch/pitching_data_999001.csv", index=False)
 
-        result = load_and_process_pitch_df("testp001", "data/pitch/")
+        result = load_and_process_pitch_df("999001", "data/pitch/")
 
         # Cleanup
-        os.remove("data/pitch/pitching_data_testp001.csv")
+        os.remove("data/pitch/pitching_data_999001.csv")
 
         assert isinstance(result, pd.DataFrame)
         assert not result.empty

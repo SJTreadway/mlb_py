@@ -270,9 +270,12 @@ def load_and_process_pitch_df(p_id, filepath=""):
     if not p_id:
         return pd.DataFrame()
 
-    p_id = str(int(p_id))
+    try:
+        p_id_str = str(int(p_id))
+    except (ValueError, TypeError):
+        return pd.DataFrame()
 
-    fname = filepath + "pitching_data_" + p_id + ".csv"
+    fname = filepath + "pitching_data_" + p_id_str + ".csv"
     pitch_df = pd.DataFrame()
 
     try:
