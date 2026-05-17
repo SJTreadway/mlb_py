@@ -157,6 +157,25 @@ def display_dashboard(hr_df, wins_df, run_date):
     hr_table = _build_table(hr_df, hr_colored)
     wins_table = _build_table(wins_df, wins_colored)
 
+    # add reliever flag
+    wins_df["Probable Starter (H)"] = wins_df.apply(
+        lambda r: (
+            f"{r['Probable Starter (H)']} ⚠️"
+            if r.get("Strt_is_reliever_h", 0) == 1
+            else r["Probable Starter (H)"]
+        ),
+        axis=1,
+    )
+
+    wins_df["Probable Starter (V)"] = wins_df.apply(
+        lambda r: (
+            f"{r['Probable Starter (V)']} ⚠️"
+            if r.get("Strt_is_reliever_v", 0) == 1
+            else r["Probable Starter (V)"]
+        ),
+        axis=1,
+    )
+
     html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>

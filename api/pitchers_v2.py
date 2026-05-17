@@ -374,6 +374,9 @@ def load_and_process_pitch_df(p_id, filepath=""):
         tb_bb_mod_col = "TB_BB_mod_" + str(winsize)
         tb_bb_perc_col = "TB_BB_perc_" + str(winsize)
 
+        gs_pct_10 = "gs_pct_10"
+        is_reliever = "is_reliever"
+
         batted_denom = np.where(
             new_columns[batted_col] == 0, np.nan, new_columns[batted_col]
         )
@@ -423,6 +426,9 @@ def load_and_process_pitch_df(p_id, filepath=""):
         new_columns[h_bb_perc_col] = h_bb_mod2 / bf_mod
         new_columns[fb_perc_col] = new_columns[fb_col] / batted_denom
         new_columns[hr_per_bf_col] = new_columns[hr_col] / bf_denom
+
+        new_columns[gs_pct_10] = roll_column(pitch_df, "GS", 10) / 10
+        new_columns[is_reliever] = (new_columns[gs_pct_10] < 0.3).astype(int)
 
     # Concatenate all new columns at once to avoid fragmentation
     if new_columns:
@@ -580,6 +586,8 @@ def get_rolling_pitching_feats(df, start_pitchers_all):
         "SO_perc_75",
         "TB_BB_perc_75",
         "H_BB_perc_75",
+        "gs_pct_10",
+        "is_reliever",
     ]
 
     cols_to_add = [
