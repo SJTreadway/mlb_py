@@ -128,13 +128,12 @@ def _build_table(df, colored_cols=None):
     """
 
 
-def display_dashboard(hr_df, wins_df, hr_bets_df, run_date):
+def display_dashboard(hr_df, wins_df, run_date):
     """
     Generate and open a baseball predictions dashboard in the browser.
 
     hr_df       : formatted HR top predictions DataFrame
     wins_df     : formatted win predictions DataFrame
-    hr_bets_df  : formatted HR bets DataFrame (edge plays only)
     run_date    : date string like '2026-05-16'
     """
 
@@ -154,26 +153,9 @@ def display_dashboard(hr_df, wins_df, hr_bets_df, run_date):
         "Edge (H)": _edge_color,
         "Edge (V)": _edge_color,
     }
-    bets_colored = {
-        "Edge": _edge_color,
-        "Wind Out": _wind_color,
-        "HR Prob": _prob_color,
-        "Barrel%": lambda v: _stat_color("Barrel%", v),
-        "EV": lambda v: _stat_color("EV", v),
-        "HARDHIT%": lambda v: _stat_color("HARDHIT%", v),
-        "SWSPOT%": lambda v: _stat_color("SWSPOT%", v),
-        "HR/PA": lambda v: _stat_color("HR/PA", v),
-        "FB%": lambda v: _stat_color("FB%", v),
-        "Platoon": lambda v: _stat_color("HR/PA", v),  # reuse HR/PA thresholds
-    }
 
     hr_table = _build_table(hr_df, hr_colored)
     wins_table = _build_table(wins_df, wins_colored)
-    bets_table = (
-        _build_table(hr_bets_df, bets_colored)
-        if not hr_bets_df.empty
-        else '<p class="no-bets">No qualifying HR bets today.</p>'
-    )
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -290,7 +272,6 @@ def display_dashboard(hr_df, wins_df, hr_bets_df, run_date):
   }}
 
   .badge-hr  {{ background: rgba(64,196,255,0.12); color: var(--blue);   border: 1px solid rgba(64,196,255,0.25); }}
-  .badge-win {{ background: rgba(255,215,64,0.12);  color: var(--yellow); border: 1px solid rgba(255,215,64,0.25); }}
   .badge-value {{ background: rgba(0,230,118,0.12);   color: var(--green);  border: 1px solid rgba(0,230,118,0.25); }}
 
   .table-wrap {{
@@ -375,16 +356,6 @@ def display_dashboard(hr_df, wins_df, hr_bets_df, run_date):
 
   <section>
     <div class="section-title">
-      <span class="badge badge-value">VALUE</span>
-      HR Edge Plays
-    </div>
-    <div class="table-wrap">
-      {bets_table}
-    </div>
-  </section>
-
-  <section>
-    <div class="section-title">
       <span class="badge badge-hr">HR</span>
       Top Home Run Predictions
     </div>
@@ -397,7 +368,7 @@ def display_dashboard(hr_df, wins_df, hr_bets_df, run_date):
 
   <section>
     <div class="section-title">
-      <span class="badge badge-win">WIN</span>
+      <span class="badge badge-value">VALUE</span>
       Game Winner Predictions
     </div>
     <div class="table-wrap">
@@ -413,4 +384,4 @@ def display_dashboard(hr_df, wins_df, hr_bets_df, run_date):
     tmp.write(html)
     tmp.close()
     webbrowser.open(f"file://{tmp.name}")
-    print(f"Dashboard opened: {tmp.name}")
+    print(f"\nDashboard opened: {tmp.name}")

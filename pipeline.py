@@ -496,26 +496,7 @@ def print_todays_homerun_preds(df):
     top_hr_df = df.nlargest(7, "hr_prob_numeric")[cols]
     print(df.nlargest(7, "hr_prob_numeric")[cols].to_string(index=False))
 
-    # print edges separately
-    if "Edge" in df.columns:
-        edge_df = df[df["Edge"].notna()].copy()
-        edge_df["edge_val"] = edge_df["Edge"].str.replace("%", "").astype(float)
-        bets = edge_df[
-            (edge_df["edge_val"] >= HR_EDGE_THRESHOLD)
-            & (edge_df["BARREL_162"] >= 0.06)  # 6% barrel rate
-            & (edge_df["EV_162"] >= 88.4)  # league average EV
-            & (edge_df["HARDHIT_162"] >= 0.35)  # 35% hard hit rate
-            & (edge_df["HR_per_PA_162"] >= 0.03)  # 3% HR/PA minimum
-        ].sort_values("edge_val", ascending=False)
-        if not bets.empty:
-            print(
-                f"\n── HR Bets (edge >= {HR_EDGE_THRESHOLD}%) ──────────────────────────────────"
-            )
-            print(f"\n{bets[cols].to_string(index=False)}")
-        else:
-            print(f"\nNo HR edges >= {HR_EDGE_THRESHOLD}% found today")
-
-    return top_hr_df, bets[cols]
+    return top_hr_df
 
 
 def print_todays_totals_preds(df):
@@ -681,7 +662,7 @@ def handler(event, context):
         pitcher_data_dict,
     )
 
-    hr_display_df, hr_bets_df = pd.DataFrame(), pd.DataFrame()
+    hr_display_df = pd.DataFrame(), pd.DataFrame()
 
     if not df_hr.empty:
         hr_probs = predict_homerun_hitter(df_hr.loc[:, HR_FEAT_SET])
@@ -696,14 +677,13 @@ def handler(event, context):
                 pickle.dump(name_map, f)
         df_hr["hr_prob"] = hr_probs
         df_hr["player_name"] = df_hr["b_id"].map(name_map)
-        hr_display_df, hr_bets_df = print_todays_homerun_preds(df_hr)
+        hr_display_df = print_todays_homerun_preds(df_hr)
     else:
         print("\nHR df is empty — no batter rows built")
 
     display_dashboard(
         hr_df=hr_display_df,  # your formatted top 7 HR df
         wins_df=wins_display_df,  # your formatted wins df
-        hr_bets_df=hr_bets_df,  # your formatted bets df
         run_date=str(RUN_DATE),
     )
 
