@@ -700,13 +700,12 @@ def handler(event, context):
     else:
         print("\nHR df is empty — no batter rows built")
 
-    if not hr_display_df.empty and not hr_bets_df.empty and not wins_display_df.empty:
-        display_dashboard(
-            hr_df=hr_display_df,  # your formatted top 7 HR df
-            wins_df=wins_display_df,  # your formatted wins df
-            hr_bets_df=hr_bets_df,  # your formatted bets df
-            run_date=str(RUN_DATE),
-        )
+    display_dashboard(
+        hr_df=hr_display_df,  # your formatted top 7 HR df
+        wins_df=wins_display_df,  # your formatted wins df
+        hr_bets_df=hr_bets_df,  # your formatted bets df
+        run_date=str(RUN_DATE),
+    )
 
     # not printing df output until o/u preds are fixed
     # print_todays_totals_preds(df_runs)
