@@ -243,6 +243,7 @@ def get_lineups(run_date):
 
     df = pd.DataFrame(rows)
     df["game_id"] = df["date_dblhead"].astype(str) + df["team_h"] + df["team_v"]
+    df["lineups_confirmed"] = df["batter1_id_h"].notna() & df["batter1_id_v"].notna()
     df.set_index("game_id", inplace=True)
     return df
 

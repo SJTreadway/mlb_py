@@ -128,7 +128,7 @@ def transform_statcast_pitcher(df):
         fly_balls = len(batted[batted["bb_type"] == "fly_ball"])
         batted_balls = len(batted)
 
-        is_home_pitcher = group["inning_topbot"].iloc[0] == "Top"
+        is_home_pitcher = (group["inning_topbot"] == "Top").any()
         at_vs = "VS" if is_home_pitcher else "AT"
         opponent = (
             group["away_team"].iloc[0]
@@ -374,9 +374,6 @@ def load_and_process_pitch_df(p_id, filepath=""):
         tb_bb_mod_col = "TB_BB_mod_" + str(winsize)
         tb_bb_perc_col = "TB_BB_perc_" + str(winsize)
 
-        gs_pct_10 = "gs_pct_10"
-        is_reliever = "is_reliever"
-
         batted_denom = np.where(
             new_columns[batted_col] == 0, np.nan, new_columns[batted_col]
         )
@@ -427,8 +424,9 @@ def load_and_process_pitch_df(p_id, filepath=""):
         new_columns[fb_perc_col] = new_columns[fb_col] / batted_denom
         new_columns[hr_per_bf_col] = new_columns[hr_col] / bf_denom
 
-        new_columns[gs_pct_10] = roll_column(pitch_df, "GS", 10) / 10
-        new_columns[is_reliever] = (new_columns[gs_pct_10] < 0.3).astype(int)
+    new_columns["rollsum_GS_10"] = roll_column(pitch_df, "GS", 10)
+    new_columns["gs_pct_10"] = new_columns["rollsum_GS_10"] / 10
+    new_columns["is_reliever"] = (new_columns["gs_pct_10"] < 0.3).astype(int)
 
     # Concatenate all new columns at once to avoid fragmentation
     if new_columns:

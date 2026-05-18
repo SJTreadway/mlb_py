@@ -79,7 +79,6 @@ def load_batting_data(batter_ids):
                 df_temp = df_temp.drop_duplicates(
                     subset=["date", "dblhead_num"], keep="first"
                 )
-
             df_temp.to_csv(fname_out, index=False)
             time.sleep(0.1)
             return None
@@ -133,7 +132,7 @@ def transform_statcast_batter(df):
             else 0
         )
 
-        is_home = group["inning_topbot"].iloc[0] == "Bot"
+        is_home = (group["inning_topbot"] == "Bot").any()
         at_vs = "VS" if is_home else "AT"
         opponent = group["away_team"].iloc[0] if is_home else group["home_team"].iloc[0]
 
@@ -606,7 +605,6 @@ def get_batting_feats(df, batter_ids, pos_map):
                         try:
                             curr_batter_row = curr_batter_df.loc[date_dblhead, :]
                         except:
-                            # print(f'date not found for batter {curr_b_id} game {date_dblhead}')
                             prev_game_indices = np.where(
                                 curr_batter_df.index < date_dblhead
                             )[0]
@@ -615,7 +613,6 @@ def get_batting_feats(df, batter_ids, pos_map):
                             else:
                                 index_to_use = np.max(prev_game_indices)
                             curr_batter_row = curr_batter_df.iloc[index_to_use, :]
-                            # print(f'using date {curr_batter_df.index[index_to_use]}')
                         if curr_batter_row.ndim > 1:
                             curr_batter_row = curr_batter_row.iloc[0, :]
                         for stem in colstems:

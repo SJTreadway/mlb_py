@@ -2,6 +2,7 @@ import webbrowser
 import tempfile
 import os
 import pandas as pd
+from datetime import datetime
 
 # League average thresholds
 LEAGUE_AVG = {
@@ -11,6 +12,48 @@ LEAGUE_AVG = {
     "SWSPOT%": 0.334,
     "HR/PA": 0.038,
     "FB%": 0.261,
+}
+
+TEAM_LOGOS = {
+    "ARI": "https://a.espncdn.com/i/teamlogos/mlb/500/ari.png",
+    "AZ": "https://a.espncdn.com/i/teamlogos/mlb/500/ari.png",
+    "ATL": "https://a.espncdn.com/i/teamlogos/mlb/500/atl.png",
+    "BAL": "https://a.espncdn.com/i/teamlogos/mlb/500/bal.png",
+    "BOS": "https://a.espncdn.com/i/teamlogos/mlb/500/bos.png",
+    "CHC": "https://a.espncdn.com/i/teamlogos/mlb/500/chc.png",
+    "CHW": "https://a.espncdn.com/i/teamlogos/mlb/500/chw.png",
+    "CWS": "https://a.espncdn.com/i/teamlogos/mlb/500/chw.png",
+    "CIN": "https://a.espncdn.com/i/teamlogos/mlb/500/cin.png",
+    "CLE": "https://a.espncdn.com/i/teamlogos/mlb/500/cle.png",
+    "COL": "https://a.espncdn.com/i/teamlogos/mlb/500/col.png",
+    "DET": "https://a.espncdn.com/i/teamlogos/mlb/500/det.png",
+    "HOU": "https://a.espncdn.com/i/teamlogos/mlb/500/hou.png",
+    "KCR": "https://a.espncdn.com/i/teamlogos/mlb/500/kc.png",
+    "KC": "https://a.espncdn.com/i/teamlogos/mlb/500/kc.png",
+    "LAA": "https://a.espncdn.com/i/teamlogos/mlb/500/laa.png",
+    "LAD": "https://a.espncdn.com/i/teamlogos/mlb/500/lad.png",
+    "MIA": "https://a.espncdn.com/i/teamlogos/mlb/500/mia.png",
+    "MIL": "https://a.espncdn.com/i/teamlogos/mlb/500/mil.png",
+    "MIN": "https://a.espncdn.com/i/teamlogos/mlb/500/min.png",
+    "NYM": "https://a.espncdn.com/i/teamlogos/mlb/500/nym.png",
+    "NYY": "https://a.espncdn.com/i/teamlogos/mlb/500/nyy.png",
+    "ATH": "https://a.espncdn.com/i/teamlogos/mlb/500/oak.png",
+    "OAK": "https://a.espncdn.com/i/teamlogos/mlb/500/oak.png",
+    "LAS": "https://a.espncdn.com/i/teamlogos/mlb/500/oak.png",
+    "PHI": "https://a.espncdn.com/i/teamlogos/mlb/500/phi.png",
+    "PIT": "https://a.espncdn.com/i/teamlogos/mlb/500/pit.png",
+    "SDP": "https://a.espncdn.com/i/teamlogos/mlb/500/sd.png",
+    "SD": "https://a.espncdn.com/i/teamlogos/mlb/500/sd.png",
+    "SEA": "https://a.espncdn.com/i/teamlogos/mlb/500/sea.png",
+    "SFG": "https://a.espncdn.com/i/teamlogos/mlb/500/sf.png",
+    "SF": "https://a.espncdn.com/i/teamlogos/mlb/500/sf.png",
+    "STL": "https://a.espncdn.com/i/teamlogos/mlb/500/stl.png",
+    "TBR": "https://a.espncdn.com/i/teamlogos/mlb/500/tb.png",
+    "TB": "https://a.espncdn.com/i/teamlogos/mlb/500/tb.png",
+    "TEX": "https://a.espncdn.com/i/teamlogos/mlb/500/tex.png",
+    "TOR": "https://a.espncdn.com/i/teamlogos/mlb/500/tor.png",
+    "WSH": "https://a.espncdn.com/i/teamlogos/mlb/500/wsh.png",
+    "WSN": "https://a.espncdn.com/i/teamlogos/mlb/500/wsh.png",
 }
 
 
@@ -113,10 +156,20 @@ def _build_table(df, colored_cols=None):
         for col in df.columns:
             val = row[col] if pd.notna(row[col]) else "N/A"
             css_class = ""
-            if col in colored_cols:
-                color_fn = colored_cols[col]
-                css_class = f' class="{color_fn(str(val))}"'
-            cells += f"<td{css_class}>{val}</td>"
+            if col == "Team":
+                team = row.get("Team", "")
+                logo = TEAM_LOGOS.get(team, "")
+                logo_html = (
+                    f'<img src="{logo}" style="height:26px;width:26px;vertical-align:middle;margin-right:6px;background:white;border-radius:50%;padding:2px;">'
+                    if logo
+                    else ""
+                )
+                cells += f"<td>{logo_html}</td>"
+            else:
+                if col in colored_cols:
+                    color_fn = colored_cols[col]
+                    css_class = f' class="{color_fn(str(val))}"'
+                cells += f"<td{css_class}>{val}</td>"
         rows_html += f"<tr>{cells}</tr>"
 
     headers = "".join(f"<th>{c}</th>" for c in df.columns)
@@ -157,31 +210,12 @@ def display_dashboard(hr_df, wins_df, run_date):
     hr_table = _build_table(hr_df, hr_colored)
     wins_table = _build_table(wins_df, wins_colored)
 
-    # add reliever flag
-    wins_df["Probable Starter (H)"] = wins_df.apply(
-        lambda r: (
-            f"{r['Probable Starter (H)']} ⚠️"
-            if r.get("Strt_is_reliever_h", 0) == 1
-            else r["Probable Starter (H)"]
-        ),
-        axis=1,
-    )
-
-    wins_df["Probable Starter (V)"] = wins_df.apply(
-        lambda r: (
-            f"{r['Probable Starter (V)']} ⚠️"
-            if r.get("Strt_is_reliever_v", 0) == 1
-            else r["Probable Starter (V)"]
-        ),
-        axis=1,
-    )
-
     html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MoneyballVo Bets — {run_date}</title>
+<title>MoneyballVo | MLB Analytics — {run_date}</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;500;700&display=swap');
 
@@ -233,18 +267,31 @@ def display_dashboard(hr_df, wins_df, run_date):
     letter-spacing: 0.05em;
   }}
 
-  header .date {{
-    margin-left: auto;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 12px;
-    color: var(--muted);
-  }}
-  
   .header-right {{
     margin-left: auto;
     display: flex;
     align-items: center;
     gap: 16px;
+  }}
+  
+  .header-meta {{
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+  }}
+  
+  .date {{
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    color: var(--muted);
+  }}
+
+  .updated {{
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 10px;
+      color: var(--muted);
+      opacity: 0.6;
   }}
 
   .x-link {{
@@ -339,16 +386,6 @@ def display_dashboard(hr_df, wins_df, run_date):
   td.neg        {{ color: var(--red); }}
   td.yellow     {{ color: var(--yellow); }}
 
-  .no-bets {{
-    padding: 20px;
-    color: var(--muted);
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 12px;
-    text-align: center;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-  }}
-
   .divider {{
     height: 1px;
     background: var(--border);
@@ -360,14 +397,17 @@ def display_dashboard(hr_df, wins_df, run_date):
 
 <header>
   <span class="logo">⚾</span>
-  <h1>MoneyballVo Bets</h1>
+  <h1>MoneyballVo | MLB Analytics</h1>
   <div class="header-right">
     <a href="https://x.com/MoneyballVo" target="_blank" class="x-link">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
         <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.748l7.73-8.835L1.254 2.25H8.08l4.259 5.63L18.244 2.25zm-1.161 17.52h1.833L7.084 4.126H5.117L17.083 19.77z"/>
       </svg>
     </a>
-    <span class="date">{run_date}</span>
+    <div class="header-meta">
+      <span class="date">{run_date}</span>
+      <span class="updated">Updated {datetime.now().strftime("%-I:%M %p CST")}</span>
+    </div>
   </div>
 </header>
 

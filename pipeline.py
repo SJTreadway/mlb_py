@@ -278,7 +278,7 @@ def post_to_X():
         consumer_secret=CONSUMER_SECRET,
     )
 
-    tweet = f"""xxx"""
+    tweet = f"""⚾️ MLB Predictions | {date.today().strftime('%Y.%m.%d')} ⚾️"""
 
     post_result = client.create_tweet(text=tweet)
     print("\nTweet Posted to @MoneyballVo!")
@@ -345,12 +345,32 @@ def print_todays_home_victory_preds(df):
             "edge_v": "Edge (V)",
         }
     )
+
     filtered_df["Time"] = filtered_df["Time"].apply(format_game_time)
     filtered_df.sort_values("Date", ascending=True, inplace=True)
     if "Prob Win (H)" in filtered_df.columns:
         filtered_df["Prob Win (H)"] = filtered_df["Prob Win (H)"].map(
             lambda x: f"{x:.3f}" if pd.notna(x) else "N/A"
         )
+
+    # add reliever flag
+    filtered_df["Probable Starter (H)"] = filtered_df.apply(
+        lambda r: (
+            f"{r['Probable Starter (H)']} ⚠️"
+            if r.get("Strt_is_reliever_h", 0) == 1
+            else r["Probable Starter (H)"]
+        ),
+        axis=1,
+    )
+    filtered_df["Probable Starter (V)"] = filtered_df.apply(
+        lambda r: (
+            f"{r['Probable Starter (V)']} ⚠️"
+            if r.get("Strt_is_reliever_v", 0) == 1
+            else r["Probable Starter (V)"]
+        ),
+        axis=1,
+    )
+
     cols = [
         "Date",
         "Time",
@@ -366,6 +386,10 @@ def print_todays_home_victory_preds(df):
         "ML (V)",
         "Edge (V)",
     ]
+
+    # filter out games without confirmed lineups on both sides
+    filtered_df = filtered_df[filtered_df["lineups_confirmed"] == True]
+
     print("\n── Game Winner Predictions ──────────────────────────────────")
     print(f"\n{filtered_df.loc[:,cols]}")
     return filtered_df.loc[:, cols]
@@ -456,18 +480,9 @@ def print_todays_homerun_preds(df):
         if k in df.columns:
             df[v] = df[k].map(lambda x: f"{x:.1%}" if pd.notna(x) else "N/A")
 
-    df["Game"] = df.apply(
-        lambda r: (
-            f'{r["Opponent"]} @ {r["Team"]}'
-            if r["is_home"]
-            else f'{r["Team"]} @ {r["Opponent"]}'
-        ),
-        axis=1,
-    )
-
     cols = [
         "Player",
-        "Game",
+        "Team",
         "Barrel%",
         "EV",
         "SWSPOT%",
