@@ -180,7 +180,7 @@ make clean
 
 ## Stack
 
-Python · XGBoost · LightGBM · scikit-learn · pandas · Snowflake · GitHub Actions · AWS EC2 · Open-Meteo · pybaseball
+Python · XGBoost · LightGBM · pandas · numpy · Snowflake · GitHub Actions · AWS EC2 · Open-Meteo · pybaseball
 
 ---
 
