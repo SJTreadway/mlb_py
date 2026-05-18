@@ -21,7 +21,7 @@ import pytz
 import pickle
 
 from api.teams import generate_team_window_features
-from api.lineups_v2 import get_lineups, get_run_total_feats
+from api.lineups import get_lineups, get_run_total_feats
 from api.odds import (
     get_over_odds,
     get_under_odds,
@@ -32,8 +32,8 @@ from api.odds import (
     get_best_hr_odds,
     match_hr_odds,
 )
-from api.pitchers_v2 import process_pitching_data
-from api.batters_v2 import process_batting_data
+from api.pitchers import process_pitching_data
+from api.batters import process_batting_data
 from api.weather import process_weather_data
 from api.homerun import process_homerun_data
 

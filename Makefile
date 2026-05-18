@@ -8,7 +8,7 @@ test:
 test-verbose:
 	python3.11 -m pytest tests/ -v
 
-# Run specific test file (usage: make test-file FILE=test_batters_v2)
+# Run specific test file (usage: make test-file FILE=test_batters)
 test-file:
 	python3.11 -m pytest tests/$(FILE).py -v
 

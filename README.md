@@ -15,9 +15,9 @@ A production-grade MLB prediction system built on Statcast data, featuring daily
 ```
 mlb_py/
 ├── api/                      # Data processing modules
-│   ├── batters_v2.py         # Statcast batter pipeline
-│   ├── pitchers_v2.py        # Statcast pitcher pipeline
-│   ├── lineups_v2.py         # MLB Stats API lineup fetch
+│   ├── batters.py         # Statcast batter pipeline
+│   ├── pitchers.py        # Statcast pitcher pipeline
+│   ├── lineups.py         # MLB Stats API lineup fetch
 │   ├── teams.py              # Team-level rolling aggregations
 │   ├── odds.py               # Betting odds integration
 │   ├── homerun.py            # HR prediction feature engineering

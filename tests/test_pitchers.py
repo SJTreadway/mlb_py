@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 os.environ["YEAR"] = "2024"
 
-from api.pitchers_v2 import (
+from api.pitchers import (
     process_pitching_data,
     load_pitching_data,
     transform_statcast_pitcher,

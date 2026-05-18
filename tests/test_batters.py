@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 os.environ["YEAR"] = "2024"
 
-from api.batters_v2 import (
+from api.batters import (
     process_batting_data,
     load_batting_data,
     transform_statcast_batter,
@@ -97,7 +97,7 @@ class TestCalculateCumulativeStats:
 class TestTransformStatcastBatter:
     """Tests for transforming Statcast batter data."""
 
-    @patch("api.batters_v2.statcast_batter")
+    @patch("api.batters.statcast_batter")
     def test_empty_input(self, mock_statcast):
         """Test with empty input."""
         result = transform_statcast_batter(pd.DataFrame())
