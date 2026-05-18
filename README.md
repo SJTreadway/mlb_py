@@ -32,6 +32,7 @@ mlb_py/
 ├── models/                   # Trained models (gitignored)
 │   ├── homerun_model_2026v1.pkl
 │   └── win_model_2026v1.pkl
+├── cleanup.py
 ├── helpers.py
 ├── pipeline.py               # Main orchestration
 ├── Makefile
@@ -56,10 +57,12 @@ XGBoost classifier with isotonic calibration trained on 290,000+ batter-game row
 **Validation:** Mean AUC 0.620 (5-fold TimeSeriesSplit). Calibration shows actual HR rate 2x predicted at high confidence — model is conservative by design.
 
 **Results (sample):**
-- Brandon Lowe +850 — hit 2 HRs ✅
-- Yordan Alvarez +280 — homered first AB ✅
-- Junior Caminero +270 — homered first inning ✅
-- Kyle Schwarber, Nick Kurtz — multiple confirmed HR days ✅
+- May 14, 2026 — Jordan Walker +375 — homered ✅
+- May 15, 2026 — Brandon Lowe +440 — hit 2 HRs ✅
+- May 15, 2026 — Nick Kurtz #1 ranked — homered ✅
+- May 16, 2026 — Yordan Alvarez +290 — homered first AB ✅
+- May 17, 2026 — Junior Caminero +270 — homered first AB ✅
+- May 17, 2026 — Ben Rice +390 — homered ✅
 
 ### Win Prediction Model
 LightGBM classifier trained on 2015-2025 game data (modern analytics era).
