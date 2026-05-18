@@ -1,441 +1,190 @@
 # MLB Prediction Pipeline
 
-An automated MLB game prediction system using machine learning and historical data from the **Statcast API** via [pybaseball](https://github.com/jldbc/pybaseball).
+A production-grade MLB prediction system built on Statcast data, featuring daily home run probability rankings and game winner predictions with betting edge calculations.
 
-> **Note:** This project has been migrated from web scraping (Retrosheet/Baseball-Reference) to API-based data fetching for better reliability and performance.
+**Models:**
+- **HR Model** — XGBoost classifier (AUC: 0.620, 290k rows, 2020-2025) using barrel rate, exit velocity, sweet spot%, hard hit%, platoon splits, pitcher fly ball rate, park factors, weather/wind
+- **Win Model** — LightGBM classifier using starting pitcher, bullpen, and lineup rolling features. Profitable at 4%+ edge threshold
 
-## Overview
+**Infrastructure:** Snowflake + GitHub Actions for daily automated ingestion and weekly model retraining
 
-This project predicts MLB game outcomes (winners and run totals) using historical player and team statistics from the official MLB Statcast database. It fetches daily game schedules, calculates rolling performance metrics, and generates predictions with betting edge analysis.
+---
 
 ## Architecture
 
 ```
 mlb_py/
 ├── api/                      # Data processing modules
-│   ├── legacy/              # ⛔ Deprecated V1 files (web scraping)
-│   │   ├── batters.py
-│   │   ├── pitchers.py
-│   │   └── lineups.py
-│   ├── batters_v2.py        # ✅ CURRENT: Statcast API version
-│   ├── pitchers_v2.py       # ✅ CURRENT: Statcast API version  
-│   ├── lineups_v2.py        # ✅ CURRENT: Statcast API version
-│   ├── teams.py             # Team-level aggregations
-│   ├── odds.py              # Betting odds integration
-│   ├── homerun.py           # Homerun prediction feature engineering
-│   └── weather.py           # Weather data for game-day conditions
-├── train/                    # Model training scripts
-│   └── train_homerun_model.py  # Homerun model training pipeline
-├── ui/                       # Frontend dashboards
-│   └── dashboard.py         # HTML dashboard generator
-├── tests/                    # Unit tests
-│   ├── test_batters_v2.py   # Tests for API version
-│   ├── test_pitchers_v2.py  # Tests for API version
-│   ├── test_lineups_v2.py
-│   ├── test_teams.py
-│   ├── test_odds.py
-│   ├── test_homerun.py      # Tests for HR prediction
-│   └── test_pipeline.py
-├── data/                     # Local data storage (gitignored)
-│   ├── bat/                 # Batter historical data
-│   ├── pitch/               # Pitcher historical data
-│   ├── daily/               # Daily game data
-│   └── results/             # Prediction outputs
-├── models/                   # Trained ML models (gitignored)
-│   ├── homerun_model_2026v1.pkl  # XGBoost HR prediction model
-│   ├── win_model_2026v1.pkl      # Game winner model
-│   └── runs_scored_model_v1.pkl  # Runs totals model
-├── helpers.py               # Utility functions
-├── pipeline.py              # Main prediction pipeline
-├── Makefile                # Build commands
-├── requirements.txt        # Python dependencies
-└── .env                    # Environment variables (gitignored)
+│   ├── batters_v2.py         # Statcast batter pipeline
+│   ├── pitchers_v2.py        # Statcast pitcher pipeline
+│   ├── lineups_v2.py         # MLB Stats API lineup fetch
+│   ├── teams.py              # Team-level rolling aggregations
+│   ├── odds.py               # Betting odds integration
+│   ├── homerun.py            # HR prediction feature engineering
+│   └── weather.py            # Weather + wind-out calculation
+├── ui/
+│   └── dashboard.py          # HTML dashboard generator
+├── data/                     # Local cache (gitignored)
+│   ├── bat/                  # Batter historical CSVs
+│   ├── pitch/                # Pitcher historical CSVs
+│   ├── daily/                # Daily game data + odds cache
+│   └── results/              # Prediction outputs
+├── models/                   # Trained models (gitignored)
+│   ├── homerun_model_2026v1.pkl
+│   └── win_model_2026v1.pkl
+├── helpers.py
+├── pipeline.py               # Main orchestration
+├── Makefile
+└── requirements.txt
 ```
 
-## Key Features
+---
 
-### Data Sources ✅ API-Based
-- **Statcast API** (via pybaseball) - Official MLB player statistics
-- **MLB Stats API** - Team data and schedules
-- **Odds API** - Betting lines and prices
+## Models
 
-> ⚡ **No Web Scraping:** The current implementation uses the Statcast API exclusively, eliminating timeouts and CAPTCHA issues associated with web scraping.
+### HR Prediction Model
+XGBoost classifier with isotonic calibration trained on 290,000+ batter-game rows (2020-2025).
 
-### Statistics Tracked
+**Feature set:**
+- Contact quality: barrel%, exit velocity, hard hit%, sweet spot% — rolling 7/14/30/75/162-game windows
+- Power rates: HR/PA, HR/PA vs RHP, HR/PA vs LHP — same windows
+- Rate stats: SLG, OBP, OBS, estimated wOBA, estimated SLG
+- Pitcher matchup: HR/BF and FB% over 10/35/75-game windows
+- Context: park HR factor, temperature, humidity, wind speed, wind-out (mph blowing toward CF)
+- Player: age, days rest, home/away, batting slot
 
-**Batters:**
-- Rolling averages (30, 75, 162, 350 games)
-- AVG, OBP, SLG, OPS
-- Stolen bases, caught stealing
-- Position-specific defaults
+**Validation:** Mean AUC 0.620 (5-fold TimeSeriesSplit). Calibration shows actual HR rate 2x predicted at high confidence — model is conservative by design.
 
-**Pitchers:**
-- ERA, WHIP, FIP
-- Strikeout percentage
-- Walks + hits per inning
-- Rolling windows (10, 35, 75 games)
+**Results (sample):**
+- Brandon Lowe +850 — hit 2 HRs ✅
+- Yordan Alvarez +280 — homered first AB ✅
+- Junior Caminero +270 — homered first inning ✅
+- Kyle Schwarber, Nick Kurtz — multiple confirmed HR days ✅
 
-**Teams:**
-- Team hitting aggregates
-- Bullpen vs starter splits
-- Home/away splits
+### Win Prediction Model
+LightGBM classifier trained on 2015-2025 game data (modern analytics era).
 
-### Models
+**Feature set:**
+- Starting pitcher: WHIP, TB/BB%, H/BB%, SO% — 10/35/75-game windows
+- Bullpen: WHIP, SO%, TB/BB%, H/BB% — 10/35/75-game windows
+- Lineup: OBP, SLG — 75/162/350-game windows for home and away
 
-1. **Home Victory Model** - Predicts game winner (RandomForest, trained on team/bullpen/lineup features)
-2. **Runs Scored Model** - Predicts total runs (over/under)
-3. **Homerun Prediction Model** - Per-batter HR probability using XGBoost, trained on:
-   - Rolling barrel rate, exit velocity, hard-hit%, sweet-spot% (7/14/30/75/162-game windows)
-   - Rolling HR/PA, SLG, OBP, OBS, estimated wOBA/SLG
-   - Platoon splits (HR/PA vs RHP / LHP)
-   - Pitcher features: HR/BF and FB% (10/35/75-game windows)
-   - Park HR factor, weather (temp, humidity, wind), home/away, age, days rest
+**Results:** Profitable at 4%+ edge threshold vs moneyline market.
+
+---
+
+## Pipeline
+
+```
+1. Get Lineups          → MLB Stats API (confirmed starters + batting order)
+2. Load Pitcher Data    → Statcast via pybaseball → rolling features
+3. Load Batter Data     → Statcast via pybaseball → rolling features
+4. Team Aggregations    → Rolling OBP/SLG/ERR per team
+5. Weather              → Open-Meteo API (temp, humidity, wind speed + direction)
+6. Win Prediction       → LightGBM → probability + edge vs FanDuel moneyline
+7. HR Prediction        → XGBoost → probability per batter + odds from the-odds-api
+8. Dashboard            → HTML page with color-coded tables, auto-opens in browser
+```
+
+---
+
+## Dashboard
+
+Auto-generated HTML dashboard with three sections:
+
+- **VALUE** — HR edge plays with positive expected value
+- **HR** — Top home run predictions with Statcast metrics and wind data
+- **WIN** — Game winner predictions with probabilities and betting edges
+
+Color coding:
+- Statcast metrics: green (significantly above league average), yellow (near average), red (below)
+- Edge: bright green (3%+), dim green (1-3%), red (negative)
+- Wind Out: green (blowing toward CF), red (blowing in)
+
+---
+
+## Infrastructure
+
+### Daily Pipeline (GitHub Actions)
+Runs 3x daily (11am, 1pm, 3pm CST) on a self-hosted AWS EC2 runner:
+- Fetches yesterday's boxscores → loads batter/pitcher game rows to Snowflake
+- Computes rolling features → updates `BATTER_ROLLING_FEATURES` and `PITCHER_ROLLING_FEATURES`
+- Logs lineup confirmation status for today's slate
+
+### Snowflake Schema
+```
+BASEBALL.STATCAST.RAW_BATTER_GAMES
+BASEBALL.STATCAST.RAW_PITCHER_GAMES
+BASEBALL.STATCAST.GAME_RESULTS
+BASEBALL.STATCAST.BATTER_ROLLING_FEATURES
+BASEBALL.STATCAST.PITCHER_ROLLING_FEATURES
+BASEBALL.HISTORICAL.RETROSHEET_EVENTS
+```
+
+### Weekly Retraining (GitHub Actions)
+Mondays at 7am CST — pulls from Snowflake, retrains both models, saves updated pkl files.
+
+---
 
 ## Installation
 
 ```bash
-# Clone repository
-git clone <repository-url>
+git clone https://github.com/SJTreadway/mlb_py.git
 cd mlb_py
-
-# Install dependencies
-make install
-
-# Or manually:
 pip install -r requirements.txt
 ```
 
-### Key Dependencies
-
-- **[pybaseball](https://github.com/jldbc/pybaseball)** - Official MLB Statcast API client ⚾
-  - `statcast_batter()` - Batter statistics
-  - `statcast_pitcher()` - Pitcher statistics
-  - `playerid_lookup()` - Player ID resolution
-  
-- **MLB-StatsAPI** - Official MLB stats and schedules
-- **pandas** - Data manipulation
-- **scikit-learn** - Machine learning models
-- **xgboost** - Gradient boosting for HR prediction model
-- **numpy** - Numerical computations
-- **matplotlib** - Calibration plots for model evaluation
-
-## Environment Setup
+### Environment Variables
 
 Create a `.env` file:
 
 ```bash
-# Required
 YEAR=2026
-TOMORROW_GAMES=0
-REFRESH_DATA=1
-
-# Optional - for Twitter integration
-X_ACCESS_KEY=your_key
-X_ACCESS_SECRET=your_secret
-X_CONSUMER_KEY=your_key
-X_CONSUMER_SECRET=your_secret
-X_BEARER_TOKEN=your_token
-
-# Optional - for odds
-ODDS_API_KEY=your_key
+REFRESH_DATA=0          # set to 1 to force re-download
+ODDS_API_KEY=your_key   # the-odds-api.com
 ```
+
+---
 
 ## Usage
 
-### Run Full Pipeline
-
 ```bash
-# Run for today's games
-python pipeline.py
-
-# Or use Makefile
+# Run pipeline for today
 make run
+
+# Force refresh all data
+make run:force
+
+# Clean daily cache
+make clean:daily
+
+# Clean all cached data
+make clean
 ```
 
-### Run Tests
-
-```bash
-# Run all tests
-make test
-
-# Run with verbose output
-make test-verbose
-
-# Run specific test file
-make test-file FILE=test_batters_v2
-
-# Run tests matching pattern
-make test-pattern PATTERN=retro
-```
-
-### Available Commands
-
-```bash
-make test              # Run all tests
-make test-verbose      # Run tests with verbose output
-make test-file FILE=name    # Run specific test file
-make test-pattern PATTERN=keyword  # Run matching tests
-make run               # Run the pipeline
-make clean             # Clean test cache
-make help              # Show all commands
-```
-
-## How It Works
-
-### 1. Data Collection
-- Fetches today's game schedule from MLB Stats API
-- Identifies starting pitchers and lineups
-- Downloads historical player data from Statcast API
-
-### 2. Feature Engineering
-- Calculates rolling statistics for each player
-- Aggregates team-level metrics
-- Computes bullpen vs starter differentials
-
-### 3. Prediction
-- Loads trained ML models
-- Generates predictions for each game:
-  - Home team win probability
-  - Total runs scored prediction
-  - Homerun probability per batter (XGBoost with isotonic calibration)
-- Calculates betting edges against market lines
-
-### 4. Output
-- Saves predictions to `data/results/`
-- Displays formatted results in console
-- Opens interactive HTML dashboard in browser with color-coded HR, win, and value-bet tables
-- Optional: Posts to Twitter/X
-
-## Pipeline Flow
-
-```
- 1. Get Schedule → Fetch today's games from MLB API
- 2. Load Pitchers → Download pitcher stats (Statcast API)
- 3. Load Batters → Download batter stats (Statcast API)
- 4. Build Lineups → Construct lineups and features
- 5. Team Stats → Aggregate team-level metrics
- 6. Bullpen Data → Calculate relief pitcher stats
- 7. Win/Runs Predict → Run win & totals ML models
- 8. HR Predict → Build per-batter HR features, run XGBoost model
- 9. Dashboard → Generate HTML dashboard with color-coded tables
-10. Odds → Compare predictions to market lines
-11. Output → Save results and display
-```
-
-## File Structure Details
-
-### Core Pipeline
-
-**`pipeline.py`** - Main execution script
-- `get_games()` - Fetch daily schedule
-- `process_pitching_data()` - Process pitcher features
-- `process_batting_data()` - Process batter features  
-- `get_lines()` - Build lineups and features
-- `predict_winner()` - Run winner prediction model
-- `predict_runs_scored()` - Run totals prediction model
-
-### API Modules
-
-**`api/batters_v2.py`** - Batter statistics
-- `process_batting_data()` - Main processing function
-- `load_batting_data()` - Fetch from Statcast API
-- `transform_statcast_batter()` - Convert API data to format
-- `process_batter_df()` - Calculate rolling features
-- `get_batting_feats()` - Add features to main dataframe
-
-**`api/pitchers_v2.py`** - Pitcher statistics
-- `process_pitching_data()` - Main processing function
-- `load_pitching_data()` - Fetch from Statcast API
-- `transform_statcast_pitcher()` - Convert API data to format
-- `load_and_process_pitch_df()` - Calculate rolling features
-- `get_bullpen_data()` - Calculate bullpen stats (includes debug mode!)
-
-**`api/homerun.py`** - Homerun prediction features
-- `process_homerun_data()` - Build feature matrix for HR model
-- Per-batter rolling stats, pitcher HR/FB rates, park factors, weather
-- Platoon splits for batter vs pitcher handedness
-
-**`api/weather.py`** - Weather data for game-day conditions
-- Stadium coordinates, dome detection, OpenWeather API integration
-- Wind-out calculation relative to stadium orientation
-
-**`api/lineups_v2.py`** - Lineup construction
-- `get_lineups()` - Main lineup function
-- `get_run_total_feats()` - Features for totals model
-- `agg_non_na()` - Aggregation helper
-
-**`api/teams.py`** - Team statistics
-- `process_team_data()` - Calculate team-level features
-- `create_team_df()` - Build team-specific dataframe
-- `generate_team_window_features()` - Rolling team stats
-
-**`api/odds.py`** - Betting integration
-- `get_over_odds()` / `get_under_odds()` - Fetch odds
-- `calculate_edge()` - Calculate betting edge
-- `line_to_bet()` - Convert probability to line
-- `get_hr_prop_odds()` - Fetch HR prop bet odds from market
-- `get_best_hr_odds()` - Get best available HR odds across books
-- `match_hr_odds()` - Match odds to player predictions
-
-### Training
-
-**`train/train_homerun_model.py`** - Full training pipeline for the HR model
-- Pulls Statcast data for qualified batters (2020-2025, min 150 PA) and starting pitchers
-- Computes rolling features at multiple window sizes (7/14/30/75/162/350)
-- Trains XGBoost classifier with TimeSeriesSplit CV and isotonic calibration
-- Fetches weather data and park factors as additional features
-- Saves calibrated model with feature list to `models/homerun_model_2026v1.pkl`
-
-### UI / Dashboard
-
-**`ui/dashboard.py`** - Browser-based predictions dashboard
-- `display_dashboard()` - Generates a self-contained HTML page with three sections:
-  - **HR Edge Plays** — Filtered betting opportunities with positive edge
-  - **Top Home Run Predictions** — Highest-probability HR candidates
-  - **Game Winner Predictions** — Win probability and edges
-- Color-coded cells (green/red/yellow) based on league-average thresholds and edge strength
-- Dark theme, opens automatically in the default browser
-
-### Utilities
-
-**`helpers.py`** - Shared utilities
-- `roll_column()` - Calculate rolling sums
-- `get_team_league_map()` - Team to league mapping
-- `strip_suffix()` - Column name helper
-- `safe_int()` / `safe_float()` - Safe type conversion
-
-## Implementation Versions
-
-### ✅ Current: V2 - Statcast API (Recommended)
-**Files:** `api/batters_v2.py`, `api/pitchers_v2.py`
-
-The current implementation uses the official MLB Statcast API via the [pybaseball](https://github.com/jldbc/pybaseball) library:
-- No web scraping required
-- No timeouts or CAPTCHA issues
-- Faster data retrieval
-- More reliable and consistent data
-- Configured in `pipeline.py` by default
-
-**Key functions:**
-- `statcast_batter()` - Fetch batter data from Statcast
-- `statcast_pitcher()` - Fetch pitcher data from Statcast
-- `playerid_reverse_lookup()` - Convert player IDs
-
-### ⛔ Legacy: V1 - Web Scraping (Deprecated)
-**Files:** `api/legacy/batters.py`, `api/legacy/pitchers.py`, `api/legacy/lineups.py`
-
-The original implementation scraped data from:
-- Baseball-Reference (batters)
-- Retrosheet (pitchers)
-- Lineup construction (legacy version)
-
-**Issues with V1:**
-- Prone to timeouts
-- CAPTCHA blocking
-- Website structure changes break scrapers
-- Slower data retrieval
-
-**Migration:** V2 files are drop-in replacements. The pipeline automatically uses V2.
-
-## Betting Integration
-
-The system compares model predictions to market odds:
-
-```python
-# Example output
-Game: NYY vs BOS
-Predicted Total: 9.2 runs
-Market Line: 8.5 runs (-110)
-Edge: +12% (value on over)
-```
-
-## Troubleshooting
-
-### Bullpen Features Always Default Values
-**Fixed!** The issue was in `get_bullpen_team_df()` which only used home OR away games instead of both. Now uses `pd.concat()` to combine both datasets.
-
-### API Performance
-- ✅ **Statcast API** has no rate limits
-- ✅ Built-in delays (0.1s) between requests to be polite
-- ✅ Data is cached locally after first download
-- ✅ No timeouts or connection issues
-
-> **Note:** If you were experiencing timeouts with the old web scraping version (V1), please ensure you're using the V2 files (`api/batters_v2.py` and `api/pitchers_v2.py`), which are now the default in `pipeline.py`.
-
-### Missing Data
-- Check `data/bat/` and `data/pitch/` directories
-- Run with `REFRESH_DATA=1` to re-download
-- Models use position-specific defaults when data unavailable
-
-### Tests Failing
-```bash
-# Run specific test with verbose output
-python -m pytest tests/test_batters_v2.py::TestRetroToMlbam -v
-
-# Run all tests
-make test
-```
-
-## Development
-
-### Adding New Features
-
-1. Add to appropriate `api/` module
-2. Update feature sets in `pipeline.py`:
-   - `KS_FEAT_SET`
-   - `HR_FEAT_SET`
-3. Add tests in `tests/`
-4. Run tests: `make test`
-
-### Training New Models
-
-```python
-from sklearn.ensemble import RandomForestClassifier
-import pickle
-
-# Train model
-model = RandomForestClassifier()
-model.fit(X_train, y_train)
-
-# Save
-with open(f'models/winner_model_{YEAR}.pkl', 'wb') as f:
-    pickle.dump(model, f)
-```
+---
 
 ## Data Sources
 
-### Primary (Current Implementation)
-- **Statcast API** (via pybaseball) - Official MLB player statistics ⚾
-- **MLB Stats API** - Team data and game schedules
-- **Odds API** - Betting lines and market prices (optional)
+| Source | Usage |
+|--------|-------|
+| Statcast (pybaseball) | Pitch-level batter and pitcher data |
+| MLB Stats API | Schedules, lineups, boxscores |
+| Open-Meteo | Weather and wind forecasts |
+| the-odds-api | Moneyline and HR prop odds |
 
-### Legacy (V1 Only - Deprecated)
-- ~~Retrosheet~~ - Historical data (replaced by Statcast)
-- ~~Baseball-Reference~~ - Player statistics (replaced by Statcast)
+---
 
-> **Why Statcast?** The Statcast database provides the most comprehensive and accurate MLB data available, including pitch-level data, exit velocity, launch angle, and more. It's the same data used by MLB teams and broadcasts.
+## Stack
+
+Python · XGBoost · LightGBM · scikit-learn · pandas · Snowflake · GitHub Actions · AWS EC2 · Open-Meteo · pybaseball
+
+---
 
 ## License
 
-MIT License - See LICENSE file
+MIT License — see [LICENSE](LICENSE)
 
-## Contributing
+---
 
-1. Fork the repository
-2. Create feature branch (`git checkout -b feature/new-feature`)
-3. Commit changes (`git commit -am 'Add new feature'`)
-4. Push to branch (`git push origin feature/new-feature`)
-5. Create Pull Request
-
-## Acknowledgments
-
-- MLB Advanced Media for Statcast data
-- pybaseball library for API access
-- Retrosheet for historical data (V1)
-
-## Support
-
-For issues or questions:
-- Check existing issues on GitHub
-- Review `API_IMPLEMENTATION.md` for NHL version
-- Run `make test` to verify setup
+*Follow [@MoneyballVo](https://x.com/MoneyballVo) on X for daily picks and model updates.*
