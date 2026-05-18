@@ -121,6 +121,7 @@ class TestLoadAndProcessPitchDf:
                 "ERA": [3.00, 3.21, 2.84],
                 "fly_balls": [3, 4, 2],
                 "batted_balls_allowed": [10, 12, 9],
+                "GS": [1, 1, 1],
             }
         )
 

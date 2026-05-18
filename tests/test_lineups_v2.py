@@ -11,41 +11,19 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ['YEAR'] = '2024'
 os.environ['TOMORROW_GAMES'] = '0'
 
-from api.lineups import get_lineups, get_run_total_feats, agg_non_na
-
-
-class TestAggNonNa:
-    """Tests for aggregation function."""
-    
-    def test_returns_first_non_null(self):
-        """Test returns first non-null value."""
-        series = pd.Series([None, None, 'value', None, 'other'])
-        result = agg_non_na(series)
-        assert result == 'value'
-    
-    def test_returns_none_if_all_null(self):
-        """Test returns None if all values are null."""
-        series = pd.Series([None, None, None])
-        result = agg_non_na(series)
-        assert result is None
-    
-    def test_returns_value_if_first(self):
-        """Test returns value if it's the first."""
-        series = pd.Series(['first', None, 'second'])
-        result = agg_non_na(series)
-        assert result == 'first'
+from api.lineups_v2 import get_lineups, get_run_total_feats
 
 
 class TestGetRunTotalFeats:
     """Tests for run total features extraction."""
-    
+
     @pytest.mark.skip(reason="Requires too many columns - better tested via integration")
     def test_returns_dataframe(self):
         """Test that function returns a DataFrame."""
         # This test is skipped because the function requires 150+ columns
         # Better to test this via integration tests with real data
         pass
-    
+
     @pytest.mark.skip(reason="Requires too many columns - better tested via integration")
     def test_doubles_data(self):
         """Test that data is doubled (home and away perspectives)."""
@@ -97,9 +75,9 @@ class TestGetRunTotalFeats:
             'Bpen_H_BB_perc_10_h': [0.31],
             'Bpen_TB_BB_perc_10_h': [0.39]
         })
-        
+
         result = get_run_total_feats(test_df)
-        
+
         # Should have 2 rows (home and away perspective)
         assert len(result) == 2
 

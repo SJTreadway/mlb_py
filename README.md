@@ -13,15 +13,17 @@ This project predicts MLB game outcomes (winners and run totals) using historica
 ```
 mlb_py/
 ├── api/                      # Data processing modules
+│   ├── legacy/              # ⛔ Deprecated V1 files (web scraping)
+│   │   ├── batters.py
+│   │   ├── pitchers.py
+│   │   └── lineups.py
 │   ├── batters_v2.py        # ✅ CURRENT: Statcast API version
 │   ├── pitchers_v2.py       # ✅ CURRENT: Statcast API version  
-│   ├── lineups.py           # Lineup construction and features
+│   ├── lineups_v2.py        # ✅ CURRENT: Statcast API version
 │   ├── teams.py             # Team-level aggregations
 │   ├── odds.py              # Betting odds integration
 │   ├── homerun.py           # Homerun prediction feature engineering
-│   ├── weather.py           # Weather data for game-day conditions
-│   ├── batters.py           # ⛔ LEGACY: Web scraping (deprecated)
-│   └── pitchers.py          # ⛔ LEGACY: Web scraping (deprecated)
+│   └── weather.py           # Weather data for game-day conditions
 ├── train/                    # Model training scripts
 │   └── train_homerun_model.py  # Homerun model training pipeline
 ├── ui/                       # Frontend dashboards
@@ -29,7 +31,7 @@ mlb_py/
 ├── tests/                    # Unit tests
 │   ├── test_batters_v2.py   # Tests for API version
 │   ├── test_pitchers_v2.py  # Tests for API version
-│   ├── test_lineups.py
+│   ├── test_lineups_v2.py
 │   ├── test_teams.py
 │   ├── test_odds.py
 │   ├── test_homerun.py      # Tests for HR prediction
@@ -257,7 +259,7 @@ make help              # Show all commands
 - Stadium coordinates, dome detection, OpenWeather API integration
 - Wind-out calculation relative to stadium orientation
 
-**`api/lineups.py`** - Lineup construction
+**`api/lineups_v2.py`** - Lineup construction
 - `get_lineups()` - Main lineup function
 - `get_run_total_feats()` - Features for totals model
 - `agg_non_na()` - Aggregation helper
@@ -320,11 +322,12 @@ The current implementation uses the official MLB Statcast API via the [pybasebal
 - `playerid_reverse_lookup()` - Convert player IDs
 
 ### ⛔ Legacy: V1 - Web Scraping (Deprecated)
-**Files:** `api/batters.py`, `api/pitchers.py`
+**Files:** `api/legacy/batters.py`, `api/legacy/pitchers.py`, `api/legacy/lineups.py`
 
 The original implementation scraped data from:
 - Baseball-Reference (batters)
 - Retrosheet (pitchers)
+- Lineup construction (legacy version)
 
 **Issues with V1:**
 - Prone to timeouts
