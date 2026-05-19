@@ -43,7 +43,7 @@ STADIUM_COORDS = {
 }
 
 # Domes get fixed values
-DOME_TEAMS = {"TBR", "TB", "HOU", "ARI", "MIA", "SEA", "TOR"}
+DOME_TEAMS = {"TBR", "TB", "HOU", "MIA", "TOR"}
 DOME_TEMP = 72
 DOME_HUMIDITY = 50
 DOME_WIND = 0

@@ -77,9 +77,28 @@ def load_pitching_data(start_pitchers_all):
             if not os.path.exists(fname_out):
                 df_historical = get_historical_pitching_data(p_id)
                 df_temp = pd.concat((df_historical, df_season))
+                df_temp["date"] = pd.to_datetime(
+                    df_temp["date"], format="mixed", errors="coerce"
+                ).dt.strftime("%-m-%-d-%Y")
+                df_temp["dblhead_num"] = (
+                    pd.to_numeric(df_temp["dblhead_num"], errors="coerce")
+                    .fillna(0)
+                    .astype(int)
+                )
+                df_temp = df_temp.drop_duplicates(
+                    subset=["date", "dblhead_num"], keep="first"
+                )
             else:
                 df_existing = pd.read_csv(fname_out)
                 df_temp = pd.concat((df_existing, df_season))
+                df_temp["date"] = pd.to_datetime(
+                    df_temp["date"], format="mixed", errors="coerce"
+                ).dt.strftime("%-m-%-d-%Y")
+                df_temp["dblhead_num"] = (
+                    pd.to_numeric(df_temp["dblhead_num"], errors="coerce")
+                    .fillna(0)
+                    .astype(int)
+                )
                 df_temp = df_temp.drop_duplicates(
                     subset=["date", "dblhead_num"], keep="first"
                 )
