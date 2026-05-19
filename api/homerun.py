@@ -2,6 +2,16 @@ import pandas as pd
 import numpy as np
 from helpers import get_park_factors_map
 
+import datetime
+
+import logging
+
+log = logging.getLogger(__name__)
+
+CURRENT_YEAR = datetime.date.today().year
+SEASON_START = int(f"{CURRENT_YEAR}0401")
+CUTOFF = int((datetime.date.today() - datetime.timedelta(days=30)).strftime("%Y%m%d"))
+
 PARK_HR_FACTORS = get_park_factors_map()
 
 WINDOWS_BAT = [7, 14, 30, 75, 162, 350]
@@ -62,6 +72,14 @@ def process_homerun_data(df, batter_data_dict, pitcher_data_dict):
                 prev = bdf[bdf.index <= date_dblhead]
                 if prev.empty:
                     continue
+                # prevent guys from showing up with no recent activity
+                regular_season = prev[prev.index >= SEASON_START]
+                if regular_season.empty or regular_season.index[-1] < CUTOFF:
+                    continue
+                if b_id == "621550":  # Wisdom's MLBAM ID
+                    log.info(f"Wisdom prev index: {prev.index.tolist()[-5:]}")
+                    log.info(f"Wisdom season_start: {SEASON_START}")
+                    log.info(f"Wisdom cutoff: {CUTOFF}")
                 brow = prev.iloc[-1]
 
                 # batter features
