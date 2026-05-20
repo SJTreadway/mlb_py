@@ -390,6 +390,11 @@ def print_todays_home_victory_preds(df):
     # filter out games without confirmed lineups on both sides
     filtered_df = filtered_df[filtered_df["lineups_confirmed"] == True]
 
+    # filter out games without starting pitcher bc it may be predicting off default values
+    filtered_df = filtered_df.dropna(
+        subset=["Probable Starter (H)", "Probable Starter (V)"]
+    )
+
     print("\n── Game Winner Predictions ──────────────────────────────────")
     print(f"\n{filtered_df.loc[:,cols]}")
     return filtered_df.loc[:, cols]
