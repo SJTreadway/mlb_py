@@ -69,13 +69,18 @@ def process_homerun_data(df, batter_data_dict, pitcher_data_dict):
                 if prev.empty:
                     continue
                 # prevent guys from showing up with no recent activity
-                regular_season = prev[prev.index >= SEASON_START]
-                if regular_season.empty or regular_season.index[-1] < CUTOFF:
+                regular_season = prev[prev["date"] >= SEASON_START]
+                if regular_season.empty or regular_season["date"].iloc[-1] < CUTOFF:
                     continue
-                if b_id == "621550":  # Wisdom's MLBAM ID
-                    print(f"Wisdom prev index: {prev.index.tolist()[-5:]}")
-                    print(f"Wisdom season_start: {SEASON_START}")
-                    print(f"Wisdom cutoff: {CUTOFF}")
+                if len(regular_season) < 5:  # minimum 5 regular season games
+                    continue
+                last_365_cutoff = int(
+                    (pd.Timestamp.today() - pd.Timedelta(days=365)).strftime("%Y%m%d")
+                )
+                last_365 = prev[prev["date"] >= last_365_cutoff]
+
+                if len(last_365) < 10:  # minimum 10 games in last 365 days
+                    continue
                 brow = prev.iloc[-1]
 
                 # batter features
