@@ -207,8 +207,25 @@ def display_dashboard(hr_df, wins_df, run_date):
         "Edge (V)": _edge_color,
     }
 
-    hr_table = _build_table(hr_df, hr_colored)
-    wins_table = _build_table(wins_df, wins_colored)
+    hr_table = (
+        _build_table(hr_df, hr_colored)
+        if not hr_df.empty
+        else """
+    <div style="padding: 32px; text-align: center; font-family: 'IBM Plex Mono', monospace;
+                font-size: 12px; color: var(--muted);">
+        No qualifying HR predictions yet
+    </div>"""
+    )
+
+    wins_table = (
+        _build_table(wins_df, wins_colored)
+        if not wins_df.empty
+        else """
+        <div style="padding: 32px; text-align: center; font-family: 'IBM Plex Mono', monospace;
+                    font-size: 12px; color: var(--muted);">
+            No qualifying win predictions yet
+        </div>"""
+    )
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
