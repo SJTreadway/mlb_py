@@ -4,10 +4,6 @@ from helpers import get_park_factors_map
 
 import datetime
 
-import logging
-
-log = logging.getLogger(__name__)
-
 CURRENT_YEAR = datetime.date.today().year
 SEASON_START = int(f"{CURRENT_YEAR}0401")
 CUTOFF = int((datetime.date.today() - datetime.timedelta(days=30)).strftime("%Y%m%d"))
@@ -77,9 +73,9 @@ def process_homerun_data(df, batter_data_dict, pitcher_data_dict):
                 if regular_season.empty or regular_season.index[-1] < CUTOFF:
                     continue
                 if b_id == "621550":  # Wisdom's MLBAM ID
-                    log.info(f"Wisdom prev index: {prev.index.tolist()[-5:]}")
-                    log.info(f"Wisdom season_start: {SEASON_START}")
-                    log.info(f"Wisdom cutoff: {CUTOFF}")
+                    print(f"Wisdom prev index: {prev.index.tolist()[-5:]}")
+                    print(f"Wisdom season_start: {SEASON_START}")
+                    print(f"Wisdom cutoff: {CUTOFF}")
                 brow = prev.iloc[-1]
 
                 # batter features

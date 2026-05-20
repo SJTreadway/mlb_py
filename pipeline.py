@@ -506,10 +506,12 @@ def print_todays_homerun_preds(df):
     df["HR Prob"] = df["HR Prob"].map(lambda x: f"{x:.1%}")
     df.to_csv(f"data/results/{RUN_DATE}_homerun_preds.csv", index=False)
 
-    # show top 7 for reference
+    # show all qualifying HR predictions (>= 15% HR prob)
     print("\n── Top HR Predictions ──────────────────────────────────")
-    top_hr_df = df.nlargest(7, "hr_prob_numeric")[cols]
-    print(df.nlargest(7, "hr_prob_numeric")[cols].to_string(index=False))
+    top_hr_df = df[df["hr_prob_numeric"] >= 0.15].sort_values(
+        "hr_prob_numeric", ascending=False
+    )[cols]
+    print(top_hr_df.to_string(index=False))
 
     return top_hr_df
 
