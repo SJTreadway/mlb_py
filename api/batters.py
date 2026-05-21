@@ -27,6 +27,7 @@ import numpy as np
 import pandas as pd
 import requests
 import snowflake.connector
+import streamlit as st
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from dotenv import load_dotenv
@@ -441,8 +442,14 @@ def process_batting_data(
     batter_data_dict = load_batter_data_from_snowflake(batter_ids_list)
     missing = len(batter_ids_list) - len(batter_data_dict)
     if missing:
+        missing_ids = [b for b in batter_ids_list if b not in batter_data_dict]
         log.warning(
             f"{missing} batters not found in Snowflake — position defaults will be used"
+        )
+        st.warning(
+            f"⚠️ {missing} batter(s) not found in Snowflake — position defaults used. "
+            f"IDs: {', '.join(missing_ids)}",
+            icon=None,
         )
 
     # ── 4. assemble per-slot feature columns ──────────────────────────────

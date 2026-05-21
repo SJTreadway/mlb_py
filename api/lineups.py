@@ -254,7 +254,6 @@ def get_lineups(run_date):
 
 
 def get_run_total_feats(df):
-    """Unchanged — still works since column names are the same."""
     cols_ref = [
         "date_dblhead",
         "game_time",

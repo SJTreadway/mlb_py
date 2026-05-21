@@ -435,9 +435,9 @@ def print_todays_homerun_preds(df):
 
     df["Platoon"] = df.apply(
         lambda r: (
-            r.get("HR_per_PA_vs_R_162")
+            r.get("hr_per_pa_vs_r_162")
             if r.get("opp_throws") == "R"
-            else r.get("HR_per_PA_vs_L_162")
+            else r.get("hr_per_pa_vs_l_162")
         ),
         axis=1,
     )
@@ -464,11 +464,11 @@ def print_todays_homerun_preds(df):
 
     # Format for presentation
     if "opp_HR_per_BF_75" in df.columns:
-        df["P-HR/BF"] = df["opp_HR_per_BF_75"].map(
+        df["P-HR/BF"] = df["opp_hr_per_bf_75"].map(
             lambda x: f"{x:.3f}" if pd.notna(x) else "N/A"
         )
     if "EV_162" in df.columns:
-        df["EV"] = df["EV_162"].map(lambda x: f"{x:.1f}" if pd.notna(x) else "N/A")
+        df["EV"] = df["ev_162"].map(lambda x: f"{x:.1f}" if pd.notna(x) else "N/A")
     if "wind_spd" in df.columns:
         df["Wind"] = df["wind_spd"].map(
             lambda x: f"{x:.1f} mph" if pd.notna(x) else "N/A"
@@ -481,11 +481,11 @@ def print_todays_homerun_preds(df):
     # all % cols
     pct_cols = {
         "Implied": "Implied",
-        "BARREL_162": "Barrel%",
-        "HARDHIT_162": "HARDHIT%",
-        "SWSPOT_162": "SWSPOT%",
-        "HR_per_PA_162": "HR/PA",
-        "opp_FB_perc_35": "FB%",
+        "barrel_162": "Barrel%",
+        "hardhit_162": "HARDHIT%",
+        "swspot_162": "SWSPOT%",
+        "hr_per_pa_162": "HR/PA",
+        "opp_fb_perc_35": "FB%",
         "Platoon": "Platoon",
     }
     for k, v in pct_cols.items():
@@ -652,7 +652,7 @@ def handler(event, context):
     (
         lineup_w_pitching_batting_team_weather_df["home_victory"],
         lineup_w_pitching_batting_team_weather_df["prob"],
-    ) = predict_winner(lineup_w_pitching_batting_df.loc[:, HOME_VICTORY_FEAT_SET])
+    ) = predict_winner(lineup_w_pitching_batting_team_df.loc[:, HOME_VICTORY_FEAT_SET])
 
     # calculate our edge
     lineup_w_pitching_batting_team_weather_df["edge_h"] = (
@@ -673,6 +673,8 @@ def handler(event, context):
     )
 
     lineup_w_pitching_batting_team_weather_df.reset_index(drop=True, inplace=True)
+
+    """
     now = datetime.now(timezone.utc)
     lineup_w_pitching_batting_team_weather_df = (
         lineup_w_pitching_batting_team_weather_df[
@@ -682,9 +684,12 @@ def handler(event, context):
             > now
         ].copy()
     )
+    """
     wins_display_df = print_todays_home_victory_preds(
         lineup_w_pitching_batting_team_weather_df
     )
+
+    print(wins_display_df)
 
     df_hr = process_homerun_data(
         lineup_w_pitching_batting_team_weather_df,

@@ -19,6 +19,7 @@ import sys
 import numpy as np
 import pandas as pd
 import snowflake.connector
+import streamlit as st
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from dotenv import load_dotenv
@@ -67,8 +68,6 @@ def _sf_cfg() -> dict:
 
 
 # ── column mapping ─────────────────────────────────────────────────────────────
-# Maps Snowflake column names (lowercase) → pipeline Strt_ naming convention.
-# Covers all columns the win model and HR model prediction pipeline reads.
 
 STARTER_COL_MAP = {
     # smoothed rate features
@@ -123,29 +122,12 @@ STARTER_COL_MAP = {
     "rollsum_er_75": "rollsum_ER_75",
     # raw game stats
     "gs": "GS",
-    "ip": "IP_real",  # already mathematical (outs/3), same as IP_real
+    "ip": "IP_real",
     "bfp": "BFP",
     "hr": "HR",
     "r": "R",
 }
 
-# Bullpen columns to compute and add as Bpen_{col}_{h/v}
-BULLPEN_RATE_COLS = [
-    "whip_10",
-    "whip_35",
-    "whip_75",
-    "so_perc_10",
-    "so_perc_35",
-    "so_perc_75",
-    "h_bb_perc_10",
-    "h_bb_perc_35",
-    "h_bb_perc_75",
-    "tb_bb_perc_10",
-    "tb_bb_perc_35",
-    "tb_bb_perc_75",
-]
-
-# Bullpen output names (Bpen_ prefix, matching original pipeline)
 BULLPEN_COL_RENAME = {
     "whip_10": "Bpen_WHIP_10",
     "whip_35": "Bpen_WHIP_35",
@@ -165,13 +147,8 @@ BULLPEN_COL_RENAME = {
 # ── Snowflake data loads ───────────────────────────────────────────────────────
 
 
-def load_starter_data_from_snowflake(
-    pitcher_ids: list[str],
-) -> dict[str, pd.Series]:
-    """Fetch the most recent PITCHER_ROLLING_FEATURES row per starting pitcher.
-
-    Returns dict: str(mlbam_id) → pd.Series of latest features.
-    """
+def load_starter_data_from_snowflake(pitcher_ids: list[str]) -> dict[str, pd.Series]:
+    """Fetch the most recent PITCHER_ROLLING_FEATURES row per starting pitcher."""
     if not pitcher_ids:
         return {}
 
@@ -208,14 +185,7 @@ def load_starter_data_from_snowflake(
 
 
 def load_bullpen_data_from_snowflake(teams: list[str]) -> dict[str, dict]:
-    """Fetch BFP-weighted bullpen rolling stats per team.
-
-    Joins PITCHER_ROLLING_FEATURES (GS=0) to GAME_RESULTS to identify
-    which team each relief pitcher belongs to, then computes weighted
-    averages of WHIP / SO_PERC / H_BB_PERC / TB_BB_PERC per team.
-
-    Returns dict: team_abbrev → dict of bullpen rate columns.
-    """
+    """Fetch BFP-weighted bullpen rolling stats per team."""
     if not teams:
         return {}
 
@@ -223,11 +193,9 @@ def load_bullpen_data_from_snowflake(teams: list[str]) -> dict[str, dict]:
     schema = os.environ.get("SNOWFLAKE_SCHEMA", "STATCAST")
     team_list = ", ".join(f"'{t}'" for t in teams)
 
-    # Rate columns to aggregate — weights by rollsum_bfp_35 (best balance of
-    # sample size and recency for bullpen quality)
+    rate_cols_10 = ["whip_10", "so_perc_10", "h_bb_perc_10", "tb_bb_perc_10"]
     rate_cols_35 = ["whip_35", "so_perc_35", "h_bb_perc_35", "tb_bb_perc_35"]
     rate_cols_75 = ["whip_75", "so_perc_75", "h_bb_perc_75", "tb_bb_perc_75"]
-    rate_cols_10 = ["whip_10", "so_perc_10", "h_bb_perc_10", "tb_bb_perc_10"]
 
     def weighted_agg(col, weight):
         return f"SUM({col} * {weight}) / NULLIF(SUM({weight}), 0) AS {col}"
@@ -287,11 +255,16 @@ def load_bullpen_data_from_snowflake(teams: list[str]) -> dict[str, dict]:
 
 
 def _get_starter_defaults() -> dict:
-    """League-average fallbacks for starters with no Snowflake history."""
     return {
         "WHIP_10": 1.35,
         "WHIP_35": 1.35,
         "WHIP_75": 1.35,
+        "FIP_10": 4.20,
+        "FIP_35": 4.20,
+        "FIP_75": 4.20,
+        "FIP_perc_10": 0.35,
+        "FIP_perc_35": 0.35,
+        "FIP_perc_75": 0.35,
         "SO_perc_10": 0.22,
         "SO_perc_35": 0.22,
         "SO_perc_75": 0.22,
@@ -319,7 +292,6 @@ def _get_starter_defaults() -> dict:
 
 
 def _get_bullpen_defaults() -> dict:
-    """League-average fallbacks for bullpen with no Snowflake data."""
     return {
         "whip_10": 1.35,
         "whip_35": 1.35,
@@ -340,10 +312,7 @@ def assemble_starter_features(
     df: pd.DataFrame,
     starter_data_dict: dict[str, pd.Series],
 ) -> pd.DataFrame:
-    """Map per-starter Snowflake features to Strt_{col}_{h/v} columns on df."""
     defaults = _get_starter_defaults()
-
-    # Pre-allocate all Strt_ columns as zeros
     strt_cols = {
         f"Strt_{pipeline_name}_{hv}": np.zeros(len(df))
         for _, pipeline_name in STARTER_COL_MAP.items()
@@ -371,8 +340,9 @@ def assemble_starter_features(
                 feat_map = defaults
 
             for _, pipeline_name in STARTER_COL_MAP.items():
-                col = f"Strt_{pipeline_name}_{hv}"
-                strt_cols[col][i] = feat_map.get(pipeline_name, 0)
+                strt_cols[f"Strt_{pipeline_name}_{hv}"][i] = feat_map.get(
+                    pipeline_name, 0
+                )
 
     return pd.concat([df, pd.DataFrame(strt_cols, index=df.index)], axis=1)
 
@@ -381,9 +351,7 @@ def assemble_bullpen_features(
     df: pd.DataFrame,
     bullpen_data_dict: dict[str, dict],
 ) -> pd.DataFrame:
-    """Map team-level bullpen stats to Bpen_{col}_{h/v} columns on df."""
     defaults = _get_bullpen_defaults()
-
     bpen_cols = {
         f"{pipeline_name}_{hv}": np.zeros(len(df))
         for _, pipeline_name in BULLPEN_COL_RENAME.items()
@@ -394,10 +362,8 @@ def assemble_bullpen_features(
         for hv, team_col in [("h", "team_h"), ("v", "team_v")]:
             team = row.get(team_col)
             bp_data = bullpen_data_dict.get(team, defaults)
-
             for sf_col, pipeline_name in BULLPEN_COL_RENAME.items():
-                col = f"{pipeline_name}_{hv}"
-                bpen_cols[col][i] = float(
+                bpen_cols[f"{pipeline_name}_{hv}"][i] = float(
                     bp_data.get(sf_col, defaults.get(sf_col, 0)) or 0
                 )
 
@@ -433,8 +399,14 @@ def process_pitching_data(
     starter_data_dict = load_starter_data_from_snowflake(all_starter_ids)
     missing = len(all_starter_ids) - len(starter_data_dict)
     if missing:
+        missing_ids = [p for p in all_starter_ids if p not in starter_data_dict]
         log.warning(
             f"{missing} starters not found in Snowflake — using league-average defaults"
+        )
+        st.warning(
+            f"⚠️ {missing} starter(s) not found in Snowflake — league-average defaults used. "
+            f"IDs: {', '.join(missing_ids)}",
+            icon=None,
         )
 
     # ── 3. assemble Strt_ columns ─────────────────────────────────────────────
@@ -445,8 +417,14 @@ def process_pitching_data(
     bullpen_data_dict = load_bullpen_data_from_snowflake(teams)
     missing_teams = len(teams) - len(bullpen_data_dict)
     if missing_teams:
+        missing_team_list = [t for t in teams if t not in bullpen_data_dict]
         log.warning(
             f"{missing_teams} teams missing bullpen data — using league-average defaults"
+        )
+        st.warning(
+            f"⚠️ {missing_teams} team(s) missing bullpen data — league-average defaults used. "
+            f"Teams: {', '.join(missing_team_list)}",
+            icon=None,
         )
 
     # ── 5. assemble Bpen_ columns ─────────────────────────────────────────────

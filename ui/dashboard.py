@@ -42,30 +42,33 @@ st.markdown(
 
 /* hide streamlit chrome */
 #MainMenu, footer, header { visibility: hidden; }
-.block-container { padding-top: 1.5rem; padding-bottom: 3rem; }
+.block-container {
+    padding-top: 1.5rem;
+    padding-bottom: 3rem;
+}
 
 /* typography */
 body, .stMarkdown, td, th {
     font-family: 'IBM Plex Mono', monospace !important;
-    font-size: 12px;
+    font-size: 11px;
 }
 
 /* tables */
 .dash-table { width: 100%; border-collapse: collapse; }
 .dash-table thead tr { border-bottom: 1px solid var(--border); }
 .dash-table th {
-    padding: 10px 14px;
+    padding: 8px 10px;
     text-align: left;
-    font-size: 10px;
+    font-size: 9px;
     font-weight: 600;
-    letter-spacing: 0.1em;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--muted);
     white-space: nowrap;
     background: var(--surface);
 }
 .dash-table td {
-    padding: 9px 14px;
+    padding: 7px 10px;
     border-bottom: 1px solid var(--border);
     white-space: nowrap;
     color: var(--text);
@@ -247,12 +250,24 @@ def _prob_color(val_str: str) -> str:
 # ── HTML table builder (same logic, Streamlit renders via markdown) ─────────────
 
 
+def _format_date(val: str) -> str:
+    """Convert date_dblhead (YYYYMMDD + 0/1) → MM/DD/YYYY."""
+    try:
+        s = str(int(val))
+        date_str = s[:-1]  # strip trailing doubleheader digit
+        return datetime.strptime(date_str, "%Y%m%d").strftime("%m/%d/%Y")
+    except Exception:
+        return str(val)
+
+
 def _build_table(df: pd.DataFrame, colored_cols: dict | None = None) -> str:
     colored_cols = colored_cols or {}
     rows_html = ""
+    HIDDEN_COLS = {"Temp", "Humidity"}
+    visible_cols = [c for c in df.columns if c not in HIDDEN_COLS]
     for _, row in df.iterrows():
         cells = ""
-        for col in df.columns:
+        for col in visible_cols:
             val = row[col] if pd.notna(row[col]) else "N/A"
             if col == "Team":
                 logo = TEAM_LOGOS.get(str(row.get("Team", "")), "")
@@ -264,6 +279,8 @@ def _build_table(df: pd.DataFrame, colored_cols: dict | None = None) -> str:
                     else ""
                 )
                 cells += f"<td>{logo_html}</td>"
+            elif col == "Date":
+                cells += f"<td>{_format_date(val)}</td>"
             else:
                 css = ""
                 if col in colored_cols:
@@ -272,7 +289,7 @@ def _build_table(df: pd.DataFrame, colored_cols: dict | None = None) -> str:
                 cells += f"<td{css}>{val}</td>"
         rows_html += f"<tr>{cells}</tr>"
 
-    headers = "".join(f"<th>{c}</th>" for c in df.columns)
+    headers = "".join(f"<th>{c}</th>" for c in visible_cols)
     return (
         f'<div class="table-wrap">'
         f'<table class="dash-table">'
