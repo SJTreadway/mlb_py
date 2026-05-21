@@ -1,0 +1,32 @@
+# ── core data ──────────────────────────────────────────────────────────────────
+pandas
+numpy
+pybaseball==2.2.7
+
+# ── MLB data / API ─────────────────────────────────────────────────────────────
+requests
+tqdm
+beautifulsoup4          # keep if any scraping remains in pipeline
+tweepy                  # X/Twitter posting
+
+# ── ML ─────────────────────────────────────────────────────────────────────────
+xgboost
+lightgbm                # kept for easy swap-back (see train_homerun_model.py)
+scikit-learn
+
+# ── Snowflake ──────────────────────────────────────────────────────────────────
+snowflake-connector-python[pandas]
+cryptography            # RSA key-pair auth for Snowflake
+
+# ── AWS ────────────────────────────────────────────────────────────────────────
+boto3                   # S3 model upload (production)
+
+# ── dashboard ──────────────────────────────────────────────────────────────────
+streamlit
+
+# ── config / utils ─────────────────────────────────────────────────────────────
+python-dotenv
+
+# ── dev / test ─────────────────────────────────────────────────────────────────
+pytest
+pytest-cov

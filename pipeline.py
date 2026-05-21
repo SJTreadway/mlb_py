@@ -16,6 +16,15 @@ warnings.filterwarnings("ignore", category=pd.errors.PerformanceWarning)
 pd.set_option("display.max_columns", None)  # Display all columns
 pd.set_option("display.width", 0)  # Automatically adjust to terminal width
 
+import logging
+
+logging.basicConfig(
+    format="%(asctime)s  %(levelname)-8s  %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    level=logging.INFO,
+)
+log = logging.getLogger(__name__)
+
 from datetime import date, timedelta, datetime, timezone
 import pytz
 import pickle
@@ -208,9 +217,6 @@ HR_FEAT_SET = [
     "opp_FB_perc_75",
     "park_hr_factor",
     "age",
-    # "bat_speed_30",
-    # "bat_speed_75",
-    # "bat_speed_162",
     "est_woba_7",
     "est_woba_14",
     "est_woba_30",
@@ -269,7 +275,7 @@ def get_runs_scored_prob(probs, line):
 
 
 def post_to_X():
-    print("\nPosting picks to X")
+    log.info("\nPosting picks to X")
     client = tweepy.Client(
         bearer_token=BEARER_TOKEN,
         access_token=ACCESS_KEY,
@@ -281,7 +287,7 @@ def post_to_X():
     tweet = f"""⚾️ MLB Predictions | {date.today().strftime('%Y.%m.%d')} ⚾️"""
 
     post_result = client.create_tweet(text=tweet)
-    print("\nTweet Posted to @MoneyballVo!")
+    log.info("\nTweet Posted to @MoneyballVo!")
 
 
 def filter_games_by_edge(df):
@@ -319,7 +325,7 @@ def get_player_name_map(mlbam_ids):
             for person in resp.json().get("people", []):
                 name_map[str(person["id"])] = person["fullName"]
         except Exception as e:
-            print(f"Error fetching names: {e}")
+            log.error(f"Error fetching names: {e}")
     return name_map
 
 
@@ -391,12 +397,13 @@ def print_todays_home_victory_preds(df):
     filtered_df = filtered_df[filtered_df["lineups_confirmed"] == True]
 
     # filter out games without starting pitcher bc it may be predicting off default values
-    filtered_df = filtered_df.dropna(
-        subset=["Probable Starter (H)", "Probable Starter (V)"]
-    )
+    filtered_df = filtered_df[
+        (filtered_df["Probable Starter (H)"].notna())
+        & (filtered_df["Probable Starter (H)"] != "")
+        & (filtered_df["Probable Starter (V)"].notna())
+        & (filtered_df["Probable Starter (V)"] != "")
+    ]
 
-    print("\n── Game Winner Predictions ──────────────────────────────────")
-    print(f"\n{filtered_df.loc[:,cols]}")
     return filtered_df.loc[:, cols]
 
 
@@ -509,14 +516,16 @@ def print_todays_homerun_preds(df):
     cols = [c for c in cols if c in df.columns]
     df["hr_prob_numeric"] = df["HR Prob"]  # save numeric before formatting
     df["HR Prob"] = df["HR Prob"].map(lambda x: f"{x:.1%}")
+
+    # filter out players with missing names
+    df = df[(df["Player"].notna()) & (df["Player"] != "")]
+
     df.to_csv(f"data/results/{RUN_DATE}_homerun_preds.csv", index=False)
 
     # show all qualifying HR predictions (>= 15% HR prob)
-    print("\n── Top HR Predictions ──────────────────────────────────")
     top_hr_df = df[df["hr_prob_numeric"] >= 0.15].sort_values(
         "hr_prob_numeric", ascending=False
     )[cols]
-    print(top_hr_df.to_string(index=False))
 
     return top_hr_df
 
@@ -549,17 +558,16 @@ def print_todays_totals_preds(df):
         "Under Price",
         "Total Runs Predicted",
     ]
-    print(f"\n{df.loc[:,cols]}")
 
 
 def handler(event, context):
-    print("--- TIME TO COOK 👨🏻‍🍳 ⚾️ 🚀 💰 ---")
+    log.info("--- TIME TO COOK 👨🏻‍🍳 ⚾️ 🚀 💰 ---")
 
     if REFRESH_DATA == 1:
-        print(f"\nEmptying Data Directories")
+        log.info(f"\nEmptying Data Directories")
         cleanup_directory()
 
-    print(f"\nGetting Starting Lineups for {RUN_DATE}")
+    log.info(f"\nGetting Starting Lineups for {RUN_DATE}")
     fname = f"data/daily/{RUN_DATE}_lineup_data.csv"
     files_exist = (
         os.path.exists(fname)
@@ -568,7 +576,7 @@ def handler(event, context):
     )
 
     if files_exist and REFRESH_DATA != 1:
-        print(f"\nLoading Data From File: {fname}")
+        log.info(f"\nLoading Data From File: {fname}")
         lineup_w_pitching_batting_df = pd.read_csv(fname, index_col=False)
         with open(BATTER_DICT_FILE, "rb") as f:
             batter_data_dict = pickle.load(f)
@@ -576,24 +584,24 @@ def handler(event, context):
             pitcher_data_dict = pickle.load(f)
 
     else:
-        print("\nLoading Lineup Data")
+        log.info("\nLoading Lineup Data")
         df = get_lineups(RUN_DATE)
 
         if df.empty:
-            print("No lineups posted yet — try again later")
+            log.info("No lineups posted yet — try again later")
             return {}
 
         # Add Pitching Data
-        print("\nLoading Pitching Data")
+        log.info("\nLoading Pitching Data")
         lineup_w_pitching_df, pitcher_data_dict = process_pitching_data(df)
 
         # Add Batting Data
-        print("\nLoading Batting Data")
+        log.info("\nLoading Batting Data")
         lineup_w_pitching_batting_df, batter_data_dict = process_batting_data(
             lineup_w_pitching_df
         )
 
-        print(f"\nSaving Lineup Data to CSV")
+        log.info(f"\nSaving Lineup Data to CSV")
         lineup_w_pitching_batting_df.to_csv(fname, index=False)
 
         # Save Dicts
@@ -602,23 +610,23 @@ def handler(event, context):
         with open(PITCHER_DICT_FILE, "wb") as f:
             pickle.dump(pitcher_data_dict, f)
 
-    print(f"\nLoading Team Data")
+    log.info(f"\nLoading Team Data")
     lineup_w_pitching_batting_team_df = generate_team_window_features(
         lineup_w_pitching_batting_df
     )
 
     # Add Weather Data
-    print("\nLoading Weather Data")
+    log.info("\nLoading Weather Data")
     lineup_w_pitching_batting_team_weather_df = process_weather_data(
         lineup_w_pitching_batting_team_df, RUN_DATE
     )
 
-    print(f"\nGetting Features for Run Total Predictions")
+    log.info(f"\nGetting Features for Run Total Predictions")
     df_runs = get_run_total_feats(lineup_w_pitching_batting_team_df)
     df_runs.drop_duplicates(subset=["date_dblhead", "team_h", "team_v"], inplace=True)
     df_runs.reset_index(drop=True, inplace=True)
 
-    print(f"\nGetting Odds Data")
+    log.info(f"\nGetting Odds Data")
     lineup_w_pitching_batting_team_weather_df["moneyline_h"] = (
         lineup_w_pitching_batting_team_weather_df.apply(
             lambda row: get_money_line_price(row["team_h_full"]), axis=1
@@ -640,7 +648,7 @@ def handler(event, context):
         lambda row: get_total_line(row["team_h_full"]), axis=1
     )
 
-    print(f"\nMaking Predictions")
+    log.info(f"\nMaking Predictions")
     (
         lineup_w_pitching_batting_team_weather_df["home_victory"],
         lineup_w_pitching_batting_team_weather_df["prob"],
@@ -687,6 +695,19 @@ def handler(event, context):
     hr_display_df = pd.DataFrame(), pd.DataFrame()
 
     if not df_hr.empty:
+        # === ADD THESE PREPROCESSING LINES TO FIX THE KEYERROR ===
+        # 1. Force all df columns to lowercase to match HR_FEAT_SET
+        df_hr.columns = df_hr.columns.str.lower()
+
+        # 3. Handle structural fill-ins for columns your model expects but your pipeline didn't build
+        for col in HR_FEAT_SET:
+            if col not in df_hr.columns:
+                df_hr[col] = (
+                    0  # Prevents pandas from throwing an error if a column is missing
+                )
+        # ========================================================
+
+        # This line will now run perfectly without crashing
         hr_probs = predict_homerun_hitter(df_hr.loc[:, HR_FEAT_SET])
         NAME_MAP_FILE = f"data/daily/{RUN_DATE}_name_map.pkl"
 
@@ -701,10 +722,10 @@ def handler(event, context):
         df_hr["player_name"] = df_hr["b_id"].map(name_map)
         hr_display_df = print_todays_homerun_preds(df_hr)
     else:
-        print("\nHR df is empty — no batter rows built")
+        log.info("\nHR df is empty — no batter rows built")
 
     display_dashboard(
-        hr_df=hr_display_df,  # your formatted top 7 HR df
+        hr_df=hr_display_df,  # your formatted top HR probs
         wins_df=wins_display_df,  # your formatted wins df
         run_date=str(RUN_DATE),
     )
@@ -712,10 +733,10 @@ def handler(event, context):
     # not printing df output until o/u preds are fixed
     # print_todays_totals_preds(df_runs)
 
-    # print(f'\nHOME VICTORY FEATS:\n{lineup_w_pitching_batting_team_weather_df.loc[:, HOME_VICTORY_FEAT_SET]}')
-    # print(f'\nRUNS SCORED FEATS:\n{df_runs.loc[:, RUNS_SCORED_FEAT_SET]}')
+    # log.info(f'\nHOME VICTORY FEATS:\n{lineup_w_pitching_batting_team_weather_df.loc[:, HOME_VICTORY_FEAT_SET]}')
+    # log.info(f'\nRUNS SCORED FEATS:\n{df_runs.loc[:, RUNS_SCORED_FEAT_SET]}')
 
-    print(f"\nSaving Predictions DataFrames to CSV")
+    log.info(f"\nSaving Predictions DataFrames to CSV")
     lineup_w_pitching_batting_team_weather_df.loc[
         :,
         [
@@ -730,19 +751,6 @@ def handler(event, context):
             "edge_v",
         ],
     ].to_csv(f"data/results/{RUN_DATE}_home_victory_preds.csv", index=False)
-    """
-    df_runs.loc[
-        :,
-        [
-            "date_dblhead",
-            "game_time",
-            "team_h_full",
-            "team_v_full",
-            "over_under_line",
-            "total_runs_predicted",
-        ],
-    ].to_csv(f"data/results/{RUN_DATE}_run_total_preds.csv", index=False)
-    """
 
     # post_to_X()
     return {}

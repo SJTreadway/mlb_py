@@ -9,6 +9,38 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from api.homerun import process_homerun_data
 
 
+DATES = [20260315, 20260320, 20260325, 20260330,
+         20260401, 20260405, 20260410, 20260415, 20260420,
+         20260425, 20260430, 20260501, 20260505, 20260510]
+GAME_DATE = 20260501
+
+
+def _make_batter_df(index_date=GAME_DATE):
+    n = len(DATES)
+    return pd.DataFrame(
+        {
+            "date": DATES,
+            "BARREL_30": [0.05] * n,
+            "EV_30": [90.0] * n,
+            "HARDHIT_30": [0.4] * n,
+            "SWSPOT_30": [0.35] * n,
+            "SLG_30": [0.45] * n,
+            "OBP_30": [0.35] * n,
+            "OBS_30": [0.80] * n,
+            "est_woba_30": [0.35] * n,
+            "est_slg_30": [0.45] * n,
+            "HR_per_PA_30": [0.04] * n,
+            "HR_per_PA_vs_R_30": [0.05] * n,
+            "HR_per_PA_vs_L_30": [0.03] * n,
+            "age": [28] * n,
+            "days_rest": [1] * n,
+            "is_home": [1] * n,
+            "stand": ["R"] * n,
+        },
+        index=DATES,
+    )
+
+
 class TestProcessHomerunData:
     """Tests for home run data processing."""
 
@@ -16,7 +48,7 @@ class TestProcessHomerunData:
         """Test function returns a DataFrame."""
         df = pd.DataFrame(
             {
-                "date_dblhead": [20240601],
+                "date_dblhead": [GAME_DATE],
                 "starting_pitcher_id_h": [100],
                 "starting_pitcher_id_v": [200],
                 "team_h": ["NYY"],
@@ -27,29 +59,7 @@ class TestProcessHomerunData:
                 "batter1_id_v": [201],
             }
         )
-        batter_data = {
-            "101": pd.DataFrame(
-                {
-                    "BARREL_30": [0.05],
-                    "EV_30": [90.0],
-                    "HARDHIT_30": [0.4],
-                    "SWSPOT_30": [0.35],
-                    "SLG_30": [0.45],
-                    "OBP_30": [0.35],
-                    "OBS_30": [0.80],
-                    "est_woba_30": [0.35],
-                    "est_slg_30": [0.45],
-                    "HR_per_PA_30": [0.04],
-                    "HR_per_PA_vs_R_30": [0.05],
-                    "HR_per_PA_vs_L_30": [0.03],
-                    "age": [28],
-                    "days_rest": [1],
-                    "is_home": [1],
-                    "stand": ["R"],
-                },
-                index=[20240601],
-            )
-        }
+        batter_data = {"101": _make_batter_df()}
         pitcher_data = {}
 
         result = process_homerun_data(df, batter_data, pitcher_data)
@@ -61,7 +71,7 @@ class TestProcessHomerunData:
         """Test result has expected columns."""
         df = pd.DataFrame(
             {
-                "date_dblhead": [20240601],
+                "date_dblhead": [GAME_DATE],
                 "starting_pitcher_id_h": [100],
                 "starting_pitcher_id_v": [200],
                 "team_h": ["NYY"],
@@ -72,29 +82,7 @@ class TestProcessHomerunData:
                 "batter1_id_v": [201],
             }
         )
-        batter_data = {
-            "101": pd.DataFrame(
-                {
-                    "BARREL_30": [0.05],
-                    "EV_30": [90.0],
-                    "HARDHIT_30": [0.4],
-                    "SWSPOT_30": [0.35],
-                    "SLG_30": [0.45],
-                    "OBP_30": [0.35],
-                    "OBS_30": [0.80],
-                    "est_woba_30": [0.35],
-                    "est_slg_30": [0.45],
-                    "HR_per_PA_30": [0.04],
-                    "HR_per_PA_vs_R_30": [0.05],
-                    "HR_per_PA_vs_L_30": [0.03],
-                    "age": [28],
-                    "days_rest": [1],
-                    "is_home": [1],
-                    "stand": ["R"],
-                },
-                index=[20240601],
-            )
-        }
+        batter_data = {"101": _make_batter_df()}
         pitcher_data = {}
 
         result = process_homerun_data(df, batter_data, pitcher_data)
@@ -116,7 +104,7 @@ class TestProcessHomerunData:
         """Test with no matching batter data returns empty."""
         df = pd.DataFrame(
             {
-                "date_dblhead": [20240601],
+                "date_dblhead": [GAME_DATE],
                 "starting_pitcher_id_h": [100],
                 "starting_pitcher_id_v": [200],
                 "team_h": ["NYY"],
@@ -133,7 +121,7 @@ class TestProcessHomerunData:
         """Test pitcher features are included when data available."""
         df = pd.DataFrame(
             {
-                "date_dblhead": [20240601],
+                "date_dblhead": [GAME_DATE],
                 "starting_pitcher_id_h": [100],
                 "starting_pitcher_id_v": [200],
                 "team_h": ["NYY"],
@@ -143,29 +131,9 @@ class TestProcessHomerunData:
                 "batter1_id_h": [101],
             }
         )
-        batter_data = {
-            "101": pd.DataFrame(
-                {
-                    "BARREL_30": [0.05],
-                    "EV_30": [90.0],
-                    "HARDHIT_30": [0.4],
-                    "SWSPOT_30": [0.35],
-                    "SLG_30": [0.45],
-                    "OBP_30": [0.35],
-                    "OBS_30": [0.80],
-                    "est_woba_30": [0.35],
-                    "est_slg_30": [0.45],
-                    "HR_per_PA_30": [0.04],
-                    "HR_per_PA_vs_R_30": [0.05],
-                    "HR_per_PA_vs_L_30": [0.03],
-                    "age": [28],
-                    "days_rest": [1],
-                    "is_home": [0],
-                    "stand": ["R"],
-                },
-                index=[20240601],
-            )
-        }
+        bdf = _make_batter_df()
+        bdf.loc[:, "is_home"] = 0
+        batter_data = {"101": bdf}
         pitcher_data = {
             "200": pd.DataFrame(
                 {
@@ -176,7 +144,7 @@ class TestProcessHomerunData:
                     "HR_per_BF_75": [0.02],
                     "FB_perc_75": [0.35],
                 },
-                index=[20240601],
+                index=[GAME_DATE],
             )
         }
 

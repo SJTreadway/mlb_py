@@ -145,6 +145,7 @@ def get_lineups(run_date):
     if not slate:
         return pd.DataFrame()
 
+    """
     # filter out games that have already started
     now = datetime.now(timezone.utc)
     active = [g for g in slate if pd.Timestamp(g["game_time"], tz="UTC") > now]
@@ -152,6 +153,7 @@ def get_lineups(run_date):
     if skipped > 0:
         print(f"Skipping {skipped} games that have already started")
     slate = active
+    """
 
     # fetch pitcher handedness
     pitcher_ids = set()

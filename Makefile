@@ -26,10 +26,10 @@ test-cov:
 
 # Run pipeline
 run:
-	REFRESH_DATA=0 python3.11 pipeline.py
+	REFRESH_DATA=0 python3.11 -m streamlit run pipeline.py
 
 run\:force:
-	REFRESH_DATA=1 python3.11 pipeline.py
+	REFRESH_DATA=1 python3.11 -m streamlit run pipeline.py
 
 # Run only passing tests (useful after fixes)
 test-failed:
@@ -38,6 +38,10 @@ test-failed:
 # Model Training
 train\:homerun:
 	python3.11 train/train_homerun_model.py
+
+# Run Model Training Script Without Training
+dryrun\:homerun:
+	python3.11 train/train_homerun_model.py --dry-run
 
 # Backup Training Data
 backup\:cache:
@@ -58,12 +62,15 @@ clean\:cache:
 	rm -f data/hr_training_data_batter_checkpoint.pkl
 	rm -f data/hr_training_data_pitcher_checkpoint.pkl
 
-clean\:daily:
-	rm -f data/daily/*.pkl
+clean\:data:
+	rm -f data/bat/*.csv
+	rm -f data/daily/*.csv
+	rm -f data/pitch/*.csv
+	rm -f data/results/*.csv
 
 clean:
 	make clean\:cache
-	make clean\:daily
+	make clean\:data
 
 # Help
 help:

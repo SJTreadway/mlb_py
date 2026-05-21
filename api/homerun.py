@@ -40,7 +40,7 @@ def process_homerun_data(df, batter_data_dict, pitcher_data_dict):
                 opp_sp_key = str(int(opposing_sp))
                 pdf = pitcher_data_dict.get(opp_sp_key)
                 if pdf is not None and not pdf.empty:
-                    prev = pdf[pdf.index <= date_dblhead]
+                    prev = pdf[pdf.index <= str(int(date_dblhead))]
                     if not prev.empty:
                         prow = prev.iloc[-1]
                         for winsize in WINDOWS_PITCH:
