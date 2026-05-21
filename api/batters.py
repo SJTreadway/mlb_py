@@ -212,7 +212,64 @@ def load_batter_data_from_snowflake(
     return result
 
 
-# ── feature derivation ─────────────────────────────────────────────────────────
+def load_bvp_data_from_snowflake(
+    batter_pitcher_pairs: list[tuple[str, str]],
+) -> dict[tuple[str, str], dict]:
+    """Fetch cumulative BvP stats for batter-pitcher pairs from BVP_HISTORY.
+
+    Args:
+        batter_pitcher_pairs: list of (batter_id, pitcher_id) tuples
+
+    Returns:
+        dict: (batter_id, pitcher_id) → dict with bvp_pa, bvp_hr, bvp_hr_rate_smoothed
+    """
+    if not batter_pitcher_pairs:
+        return {}
+
+    db = os.environ.get("SNOWFLAKE_DATABASE", "BASEBALL")
+    schema = os.environ.get("SNOWFLAKE_SCHEMA", "STATCAST")
+
+    # Build IN clause for batter-pitcher pairs
+    pairs_sql = ", ".join(f"({b}, {p})" for b, p in batter_pitcher_pairs if b and p)
+
+    query = f"""
+        SELECT
+            BATTER,
+            PITCHER,
+            SUM(BVP_PA_PRIOR) + SUM(PA)  AS total_pa,
+            SUM(BVP_HR_PRIOR) + SUM(HR)  AS total_hr
+        FROM {db}.{schema}.BVP_HISTORY
+        WHERE (BATTER, PITCHER) IN ({pairs_sql})
+        GROUP BY BATTER, PITCHER
+    """
+
+    log.info(
+        f"Querying BVP_HISTORY for {len(batter_pitcher_pairs)} batter-pitcher pairs …"
+    )
+    conn = snowflake.connector.connect(**_sf_cfg())
+    cursor = conn.cursor()
+    try:
+        cursor.execute(query)
+        cols = [d[0].lower() for d in cursor.description]
+        df = pd.DataFrame(cursor.fetchall(), columns=cols)
+    finally:
+        cursor.close()
+        conn.close()
+
+    log.info(f"Pulled BvP data for {len(df)} pairs")
+
+    result = {}
+    for _, row in df.iterrows():
+        b_id = str(int(row["batter"]))
+        p_id = str(int(row["pitcher"]))
+        pa = int(row["total_pa"] or 0)
+        hr = int(row["total_hr"] or 0)
+        result[(b_id, p_id)] = {
+            "bvp_pa": pa,
+            "bvp_hr": hr,
+            "bvp_hr_rate_smoothed": (hr + 50 * 0.034) / (pa + 50),
+        }
+    return result
 
 
 def _derive_batter_features(row: pd.Series, pos: str) -> dict:
@@ -411,14 +468,11 @@ def get_lineup_averages(df: pd.DataFrame) -> pd.DataFrame:
 
 def process_batting_data(
     df: pd.DataFrame,
-) -> tuple[pd.DataFrame, dict[str, pd.Series]]:
+) -> tuple[pd.DataFrame, dict[str, pd.Series], dict]:
     """Pull batter rolling features from Snowflake and assemble lineup stats.
 
-    Drop-in replacement for the old pybaseball/CSV version.
-    Returns (enriched_df, batter_data_dict) — same signature as before.
-
-    Pre-condition: compute_rolling_features() must have been run today so
-    BATTER_ROLLING_FEATURES contains today's batters' most recent rows.
+    Returns (enriched_df, batter_data_dict, bvp_dict).
+    bvp_dict: (batter_id, pitcher_id) → {bvp_pa, bvp_hr, bvp_hr_rate_smoothed}
     """
     # ── 1. extract unique batter IDs from lineup columns ──────────────────
     batter_ids: set[str] = set()
@@ -452,10 +506,26 @@ def process_batting_data(
             icon=None,
         )
 
-    # ── 4. assemble per-slot feature columns ──────────────────────────────
+    # ── 4. pull BvP history for all batter-pitcher matchups ───────────────
+    batter_pitcher_pairs: set[tuple[str, str]] = set()
+    for slot in range(1, 10):
+        for hv, opp_hv in [("_h", "v"), ("_v", "h")]:
+            bat_col = f"batter{slot}_id{hv}"
+            sp_col = f"starting_pitcher_id_{opp_hv}"
+            if bat_col in df.columns and sp_col in df.columns:
+                for _, row in df.iterrows():
+                    b_id = row.get(bat_col)
+                    p_id = row.get(sp_col)
+                    if b_id and p_id and not pd.isna(b_id) and not pd.isna(p_id):
+                        batter_pitcher_pairs.add((str(int(b_id)), str(int(p_id))))
+
+    bvp_dict = load_bvp_data_from_snowflake(list(batter_pitcher_pairs))
+    log.info(f"Loaded BvP data for {len(bvp_dict)} batter-pitcher pairs")
+
+    # ── 5. assemble per-slot feature columns ──────────────────────────────
     df = get_batting_feats(df, batter_data_dict, pos_map)
 
-    # ── 5. aggregate to lineup-level averages ─────────────────────────────
+    # ── 6. aggregate to lineup-level averages ─────────────────────────────
     df = get_lineup_averages(df)
 
-    return df, batter_data_dict
+    return df, batter_data_dict, bvp_dict

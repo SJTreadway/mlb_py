@@ -81,8 +81,8 @@ RUNS_MODEL_FILE = "models/runs_scored_model_v1.pkl"
 HR_MODEL_FILE = "models/homerun_model_2026v1.pkl"
 BATTER_DICT_FILE = f"data/daily/{RUN_DATE}_batter_dict.pkl"
 PITCHER_DICT_FILE = f"data/daily/{RUN_DATE}_pitcher_dict.pkl"
+BVP_DICT_FILE = f"data/daily/{RUN_DATE}_bvp_dict.pkl"
 HR_ODDS_CACHE_FILE = f"data/daily/{RUN_DATE}_hr_odds_cache.pkl"
-
 
 # Set of features we will predict on
 RUNS_SCORED_FEAT_SET = [
@@ -175,17 +175,34 @@ def format_game_time(utc_str):
 
 
 def predict_winner(X):
-    with open(WINS_MODEL_FILE, "rb") as pickle_file:
-        model = pickle.load(pickle_file)
-    pred = model.predict(X)
-    prob = model.predict_proba(X)[:, 1]
+    with open(WINS_MODEL_FILE, "rb") as f:
+        artifact = pickle.load(f)
+
+    # handle both old-style (raw model) and new-style (dict with model + features)
+    if isinstance(artifact, dict):
+        model = artifact["model"]
+        feat_cols = artifact["features"]
+    else:
+        model = artifact
+        feat_cols = HOME_VICTORY_FEAT_SET  # fall back to hardcoded list
+
+    pred = model.predict(X[feat_cols])
+    prob = model.predict_proba(X[feat_cols])[:, 1]
     return pred, prob
 
 
 def predict_runs_scored(X):
-    with open(RUNS_MODEL_FILE, "rb") as pickle_file:
-        model = pickle.load(pickle_file)
-    probs = model.predict_proba(X)
+    with open(RUNS_MODEL_FILE, "rb") as f:
+        artifact = pickle.load(f)
+    # handle both old-style (raw model) and new-style (dict with model + features)
+    if isinstance(artifact, dict):
+        model = artifact["model"]
+        feat_cols = artifact["features"]
+    else:
+        model = artifact
+        feat_cols = RUNS_SCORED_FEAT_SET  # fall back to hardcoded list
+
+    probs = model.predict_proba(X[feat_cols])[:, 1]
     return probs
 
 
@@ -509,6 +526,7 @@ def handler(event, context):
         os.path.exists(fname)
         and os.path.exists(BATTER_DICT_FILE)
         and os.path.exists(PITCHER_DICT_FILE)
+        and os.path.exists(BVP_DICT_FILE)
     )
 
     if files_exist and REFRESH_DATA != 1:
@@ -518,6 +536,8 @@ def handler(event, context):
             batter_data_dict = pickle.load(f)
         with open(PITCHER_DICT_FILE, "rb") as f:
             pitcher_data_dict = pickle.load(f)
+        with open(BVP_DICT_FILE, "rb") as f:
+            bvp_dict = pickle.load(f)
 
     else:
         log.info("\nLoading Lineup Data")
@@ -533,7 +553,7 @@ def handler(event, context):
 
         # Add Batting Data
         log.info("\nLoading Batting Data")
-        lineup_w_pitching_batting_df, batter_data_dict = process_batting_data(
+        lineup_w_pitching_batting_df, batter_data_dict, bvp_dict = process_batting_data(
             lineup_w_pitching_df
         )
 
@@ -545,6 +565,8 @@ def handler(event, context):
             pickle.dump(batter_data_dict, f)
         with open(PITCHER_DICT_FILE, "wb") as f:
             pickle.dump(pitcher_data_dict, f)
+        with open(BVP_DICT_FILE, "wb") as f:
+            pickle.dump(bvp_dict, f)
 
     log.info(f"\nLoading Team Data")
     lineup_w_pitching_batting_team_df = generate_team_window_features(
@@ -588,7 +610,7 @@ def handler(event, context):
     (
         lineup_w_pitching_batting_team_weather_df["home_victory"],
         lineup_w_pitching_batting_team_weather_df["prob"],
-    ) = predict_winner(lineup_w_pitching_batting_team_df.loc[:, HOME_VICTORY_FEAT_SET])
+    ) = predict_winner(lineup_w_pitching_batting_team_df)
 
     # calculate our edge
     lineup_w_pitching_batting_team_weather_df["edge_h"] = (
@@ -602,7 +624,7 @@ def handler(event, context):
         )
     )
 
-    run_total_probs = predict_runs_scored(df_runs.loc[:, RUNS_SCORED_FEAT_SET])
+    run_total_probs = predict_runs_scored(df_runs)
     df_runs["total_runs_predicted"] = df_runs.apply(
         lambda row: get_runs_scored_prob(run_total_probs, row["over_under_line"]),
         axis=1,
@@ -628,6 +650,7 @@ def handler(event, context):
         lineup_w_pitching_batting_team_weather_df,
         batter_data_dict,
         pitcher_data_dict,
+        bvp_dict,
     )
 
     hr_display_df = pd.DataFrame(), pd.DataFrame()

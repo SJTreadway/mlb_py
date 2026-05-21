@@ -64,14 +64,21 @@ def _check_batter_active(brow: pd.Series) -> bool:
     return True
 
 
-def process_homerun_data(df, batter_data_dict, pitcher_data_dict):
+def process_homerun_data(df, batter_data_dict, pitcher_data_dict, bvp_dict=None):
     """
     Build one row per batter-game for HR model prediction.
 
     df               : main game dataframe with weather, park, lineup columns
     batter_data_dict : dict of str(mlbam_id) → pd.Series (latest batter row)
     pitcher_data_dict: dict of str(mlbam_id) → pd.Series (latest pitcher row)
+    bvp_dict         : dict of (batter_id, pitcher_id) → {bvp_pa, bvp_hr, bvp_hr_rate_smoothed}
     """
+    if bvp_dict is None:
+        bvp_dict = {}
+
+    # Bayes-smoothed league-average HR rate (prior when no BvP history)
+    BVP_PRIOR_RATE = (0 + 50 * 0.034) / (0 + 50)  # = 0.034
+
     rows = []
 
     for _, game_row in df.iterrows():
@@ -87,6 +94,7 @@ def process_homerun_data(df, batter_data_dict, pitcher_data_dict):
                 **{f"opp_fb_perc_{w}": 0.35 for w in WINDOWS_PITCH},
                 "opp_is_starter": 1,
             }
+            opp_sp_key = None
             if opposing_sp is not None and not pd.isna(opposing_sp):
                 opp_sp_key = str(int(opposing_sp))
                 prow = pitcher_data_dict.get(opp_sp_key)
@@ -123,11 +131,9 @@ def process_homerun_data(df, batter_data_dict, pitcher_data_dict):
                 stand = str(brow.get("stand", ""))
 
                 # matchup: stand + opp_throws → "RR", "RL", "LR", "LL"
-                # must be lowercase to match model feature names
                 matchup = (stand + str(opp_throws)) if stand and opp_throws else "??"
 
                 # ── batter rolling features ───────────────────────────────
-                # All keys lowercase to match XGBoost trained feature names
                 batter_feats = {}
                 for w in WINDOWS_BAT:
                     for stem in [
@@ -163,6 +169,14 @@ def process_homerun_data(df, batter_data_dict, pitcher_data_dict):
                 batter_feats["age"] = float(brow.get("age", np.nan) or np.nan)
                 batter_feats["is_home"] = int(hv == "h")
                 batter_feats["matchup"] = matchup
+
+                # ── BvP features ──────────────────────────────────────────
+                bvp = bvp_dict.get((b_id, opp_sp_key), {}) if opp_sp_key else {}
+                batter_feats["bvp_pa"] = bvp.get("bvp_pa", 0)
+                batter_feats["bvp_hr"] = bvp.get("bvp_hr", 0)
+                batter_feats["bvp_hr_rate_smoothed"] = bvp.get(
+                    "bvp_hr_rate_smoothed", BVP_PRIOR_RATE
+                )
 
                 rows.append(
                     {
