@@ -36,12 +36,19 @@ test-failed:
 	python3.11 -m pytest tests/ --lf
 
 # Model Training
+train\:win:
+	python3.11 train/train_win_model.py
+
 train\:homerun:
 	python3.11 train/train_homerun_model.py
 
 # Run Model Training Script Without Training
+dryrun\:win:
+	python3.11 train/train_win_model.py --dry-run
+
 dryrun\:homerun:
 	python3.11 train/train_homerun_model.py --dry-run
+
 
 # Backup Training Data
 backup\:cache:

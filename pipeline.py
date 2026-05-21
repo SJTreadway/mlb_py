@@ -29,7 +29,11 @@ from datetime import date, timedelta, datetime, timezone
 import pytz
 import pickle
 
-from api.teams import generate_team_window_features
+from api.teams import (
+    generate_team_window_features,
+    add_team_form_features,
+    assemble_win_model_features,
+)
 from api.lineups import get_lineups, get_run_total_feats
 from api.odds import (
     get_over_odds,
@@ -76,7 +80,8 @@ TOMORROW_GAMES = int(os.environ["TOMORROW_GAMES"])
 RUN_DATE = date.today() if TOMORROW_GAMES == 0 else date.today() + timedelta(days=1)
 
 # File locations
-WINS_MODEL_FILE = "models/win_model_2026v1.pkl"
+# WINS_MODEL_FILE = "models/win_model_2026v1.pkl"
+WINS_MODEL_FILE = "models/win_model_20260521.pkl"
 RUNS_MODEL_FILE = "models/runs_scored_model_v1.pkl"
 HR_MODEL_FILE = "models/homerun_model_2026v1.pkl"
 BATTER_DICT_FILE = f"data/daily/{RUN_DATE}_batter_dict.pkl"
@@ -572,6 +577,9 @@ def handler(event, context):
     lineup_w_pitching_batting_team_df = generate_team_window_features(
         lineup_w_pitching_batting_df
     )
+    lineup_w_pitching_batting_team_df = add_team_form_features(
+        lineup_w_pitching_batting_team_df
+    )
 
     # Add Weather Data
     log.info("\nLoading Weather Data")
@@ -607,10 +615,11 @@ def handler(event, context):
     )
 
     log.info(f"\nMaking Predictions")
+    win_model_df = assemble_win_model_features(lineup_w_pitching_batting_team_df.copy())
     (
         lineup_w_pitching_batting_team_weather_df["home_victory"],
         lineup_w_pitching_batting_team_weather_df["prob"],
-    ) = predict_winner(lineup_w_pitching_batting_team_df)
+    ) = predict_winner(win_model_df)
 
     # calculate our edge
     lineup_w_pitching_batting_team_weather_df["edge_h"] = (
