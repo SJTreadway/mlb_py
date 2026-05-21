@@ -162,78 +162,6 @@ HOME_VICTORY_FEAT_SET = [
     "lineup9_SLG_75_v",
 ]
 
-HR_FEAT_SET = [
-    "BARREL_7",
-    "BARREL_14",
-    "BARREL_30",
-    "BARREL_75",
-    "BARREL_162",
-    "EV_7",
-    "EV_14",
-    "EV_30",
-    "EV_75",
-    "EV_162",
-    "HARDHIT_7",
-    "HARDHIT_14",
-    "HARDHIT_30",
-    "HARDHIT_75",
-    "HARDHIT_162",
-    "SWSPOT_7",
-    "SWSPOT_14",
-    "SWSPOT_30",
-    "SWSPOT_75",
-    "SWSPOT_162",
-    "HR_per_PA_7",
-    "HR_per_PA_14",
-    "HR_per_PA_30",
-    "HR_per_PA_75",
-    "HR_per_PA_162",
-    "HR_per_PA_350",
-    "HR_per_PA_vs_R_7",
-    "HR_per_PA_vs_R_14",
-    "HR_per_PA_vs_R_30",
-    "HR_per_PA_vs_R_75",
-    "HR_per_PA_vs_R_162",
-    "HR_per_PA_vs_L_7",
-    "HR_per_PA_vs_L_14",
-    "HR_per_PA_vs_L_30",
-    "HR_per_PA_vs_L_75",
-    "HR_per_PA_vs_L_162",
-    "SLG_7",
-    "SLG_14",
-    "SLG_30",
-    "SLG_75",
-    "OBP_7",
-    "OBP_14",
-    "OBP_30",
-    "OBP_75",
-    "OBS_30",
-    "OBS_75",
-    "opp_HR_per_BF_10",
-    "opp_HR_per_BF_35",
-    "opp_HR_per_BF_75",
-    "opp_FB_perc_10",
-    "opp_FB_perc_35",
-    "opp_FB_perc_75",
-    "park_hr_factor",
-    "age",
-    "est_woba_7",
-    "est_woba_14",
-    "est_woba_30",
-    "est_woba_75",
-    "est_woba_162",
-    "est_slg_7",
-    "est_slg_14",
-    "est_slg_30",
-    "est_slg_75",
-    "est_slg_162",
-    "is_home",
-    "temp",
-    "humidity",
-    "wind_spd",
-    "wind_out",
-]
-
 
 def format_game_time(utc_str):
     """Convert ISO UTC game time to CST display string."""
@@ -265,7 +193,15 @@ def predict_homerun_hitter(X):
     with open(HR_MODEL_FILE, "rb") as f:
         artifact = pickle.load(f)
     model = artifact["model"]
-    probs = model.predict_proba(X)[:, 1]
+    feat_cols = artifact["features"]
+    X["matchup"] = pd.Categorical(X["matchup"])
+
+    fi = pd.Series(model.feature_importances_, index=feat_cols).sort_values(
+        ascending=False
+    )
+    print(fi.head(20))
+
+    probs = model.predict_proba(X[feat_cols])[:, 1]
     return probs
 
 
@@ -697,20 +633,7 @@ def handler(event, context):
     hr_display_df = pd.DataFrame(), pd.DataFrame()
 
     if not df_hr.empty:
-        # === ADD THESE PREPROCESSING LINES TO FIX THE KEYERROR ===
-        # 1. Force all df columns to lowercase to match HR_FEAT_SET
-        df_hr.columns = df_hr.columns.str.lower()
-
-        # 3. Handle structural fill-ins for columns your model expects but your pipeline didn't build
-        for col in HR_FEAT_SET:
-            if col not in df_hr.columns:
-                df_hr[col] = (
-                    0  # Prevents pandas from throwing an error if a column is missing
-                )
-        # ========================================================
-
-        # This line will now run perfectly without crashing
-        hr_probs = predict_homerun_hitter(df_hr.loc[:, HR_FEAT_SET])
+        hr_probs = predict_homerun_hitter(df_hr)
         NAME_MAP_FILE = f"data/daily/{RUN_DATE}_name_map.pkl"
 
         if os.path.exists(NAME_MAP_FILE):
@@ -725,6 +648,28 @@ def handler(event, context):
         hr_display_df = print_todays_homerun_preds(df_hr)
     else:
         log.info("\nHR df is empty — no batter rows built")
+
+    # DEBUG
+    log.info("---START DEBUG------------------------")
+    log.info(
+        f"hr_prob stats: mean={df_hr['hr_prob'].mean():.4f} max={df_hr['hr_prob'].max():.4f}"
+    )
+    log.info(f"barrel_30 sample: {df_hr['barrel_30'].describe()}")
+    log.info(f"park_hr_factor sample: {df_hr['park_hr_factor'].describe()}")
+    log.info("=== Feature distribution check ===")
+    for col in [
+        "barrel_30",
+        "obp_162",
+        "hr_per_pa_162",
+        "park_hr_factor",
+        "opp_hr_per_bf_35",
+    ]:
+        if col in df_hr.columns:
+            s = df_hr[col].describe()
+            log.info(
+                f"{col}: mean={s['mean']:.4f} min={s['min']:.4f} max={s['max']:.4f}"
+            )
+    log.info("---END DEBUG------------------------")
 
     display_dashboard(
         hr_df=hr_display_df,  # your formatted top HR probs
