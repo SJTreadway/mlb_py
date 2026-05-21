@@ -674,7 +674,6 @@ def handler(event, context):
 
     lineup_w_pitching_batting_team_weather_df.reset_index(drop=True, inplace=True)
 
-    """
     now = datetime.now(timezone.utc)
     lineup_w_pitching_batting_team_weather_df = (
         lineup_w_pitching_batting_team_weather_df[
@@ -684,12 +683,10 @@ def handler(event, context):
             > now
         ].copy()
     )
-    """
+
     wins_display_df = print_todays_home_victory_preds(
         lineup_w_pitching_batting_team_weather_df
     )
-
-    print(wins_display_df)
 
     df_hr = process_homerun_data(
         lineup_w_pitching_batting_team_weather_df,
