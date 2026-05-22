@@ -1,7 +1,8 @@
 .env
-/models
+.venv
 *.csv
 **/__pycache__
 data/
-.venv
+models/
 train/
+cache/

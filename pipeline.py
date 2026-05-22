@@ -88,7 +88,7 @@ BATTER_DICT_FILE = f"data/daily/{RUN_DATE}_batter_dict.pkl"
 PITCHER_DICT_FILE = f"data/daily/{RUN_DATE}_pitcher_dict.pkl"
 BVP_DICT_FILE = f"data/daily/{RUN_DATE}_bvp_dict.pkl"
 HR_ODDS_CACHE_FILE = f"data/daily/{RUN_DATE}_hr_odds_cache.pkl"
-PREDS_FILE = f"data/results/{RUN_DATE}_home_victory_preds.csv", index=False)
+PREDS_FILE = f"data/results/{RUN_DATE}_home_victory_preds.csv"
 
 # Set of features we will predict on
 RUNS_SCORED_FEAT_SET = [

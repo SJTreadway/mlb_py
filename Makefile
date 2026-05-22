@@ -63,6 +63,10 @@ results\:today:
 results\:summary:
 	python3.11 -c "from results_tracker import print_summary; print_summary()"
 
+# Backfill Weather Data Cache For Model Training
+backfill\:weather:
+	python3.11 api/weather.py --cache cache/hr_training_data_weather_cache.pkl
+
 
 # Backup Training Data
 backup\:cache:
@@ -77,20 +81,10 @@ backup:
 	make backup\:cache
 	make backup\:model
 
-# Delete Cache Files
-clean\:cache:
-	rm -f data/hr_training_data.csv
-	rm -f data/hr_training_data_batter_checkpoint.pkl
-	rm -f data/hr_training_data_pitcher_checkpoint.pkl
-	rm -f data/daily/*.pkl
-
-clean\:data:
-	rm -f data/daily/*.csv
-	rm -f data/results/*.csv
-
+# Delete Daily Files
 clean:
-	make clean\:cache
-	make clean\:data
+	python3.11 cleanup.py
+
 
 # Help
 help:
