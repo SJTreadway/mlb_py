@@ -49,6 +49,16 @@ dryrun\:win:
 dryrun\:homerun:
 	python3.11 train/train_homerun_model.py --dry-run
 
+# Model Results Tracking
+results:
+	python3.11 results_tracker.py $(DATE)
+
+results\:today:
+	python3.11 results_tracker.py
+
+results\:summary:
+	python3.11 -c "from results_tracker import print_summary; print_summary()"
+
 
 # Backup Training Data
 backup\:cache:

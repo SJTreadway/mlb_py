@@ -421,11 +421,13 @@ def process_pitching_data(
         log.warning(
             f"{missing_teams} teams missing bullpen data — using league-average defaults"
         )
+        """ TODO: UNCOMMENT ONCE BULLPEN DATA IS DEPENDABLE; RIGHT NOW JUST NOISE IN UI
         st.warning(
             f"⚠️ {missing_teams} team(s) missing bullpen data — league-average defaults used. "
             f"Teams: {', '.join(missing_team_list)}",
             icon=None,
         )
+        """
 
     # ── 5. assemble Bpen_ columns ─────────────────────────────────────────────
     df = assemble_bullpen_features(df, bullpen_data_dict)

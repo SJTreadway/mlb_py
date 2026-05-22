@@ -50,6 +50,7 @@ from api.batters import process_batting_data
 from api.weather import process_weather_data
 from api.homerun import process_homerun_data
 
+import streamlit as st
 from ui.dashboard import display_dashboard
 
 from cleanup import cleanup_directory
@@ -481,7 +482,7 @@ def print_todays_homerun_preds(df):
     df.to_csv(f"data/results/{RUN_DATE}_homerun_preds.csv", index=False)
 
     # show all qualifying HR predictions (>= 15% HR prob)
-    top_hr_df = df[df["hr_prob_numeric"] >= 0.15].sort_values(
+    top_hr_df = df[df["hr_prob_numeric"] >= 0.18].sort_values(
         "hr_prob_numeric", ascending=False
     )[cols]
 
@@ -518,9 +519,9 @@ def print_todays_totals_preds(df):
     ]
 
 
-def handler(event, context):
+@st.cache_data(ttl=1800)  # 30 min cache
+def run_pipeline(run_date_str):
     log.info("--- TIME TO COOK 👨🏻‍🍳 ⚾️ 🚀 💰 ---")
-
     if REFRESH_DATA == 1:
         log.info(f"\nEmptying Data Directories")
         cleanup_directory()
@@ -686,8 +687,16 @@ def handler(event, context):
     log.info(
         f"hr_prob stats: mean={df_hr['hr_prob'].mean():.4f} max={df_hr['hr_prob'].max():.4f}"
     )
-    log.info(f"barrel_30 sample: {df_hr['barrel_30'].describe()}")
-    log.info(f"park_hr_factor sample: {df_hr['park_hr_factor'].describe()}")
+    log.info(f"hr_prob distribution: {pd.Series(hr_probs).describe()}")
+    log.info(f"pct > 0.10: {(pd.Series(hr_probs) > 0.10).mean():.1%}")
+    log.info(f"pct > 0.15: {(pd.Series(hr_probs) > 0.15).mean():.1%}")
+    log.info(f"pct > 0.20: {(pd.Series(hr_probs) > 0.20).mean():.1%}")
+    log.info(f"opp_hr_per_bf_35 mean: {df_hr['opp_hr_per_bf_35'].mean():.4f}")
+    log.info(f"opp_fb_perc_35 mean: {df_hr['opp_fb_perc_35'].mean():.4f}")
+    log.info(f"hr_per_pa_162 mean: {df_hr['hr_per_pa_162'].mean():.4f}")
+    log.info(f"barrel_162 mean: {df_hr['barrel_162'].mean():.4f}")
+    log.info(f"matchup value counts: {df_hr['matchup'].value_counts().to_dict()}")
+
     log.info("=== Feature distribution check ===")
     for col in [
         "barrel_30",
@@ -702,12 +711,6 @@ def handler(event, context):
                 f"{col}: mean={s['mean']:.4f} min={s['min']:.4f} max={s['max']:.4f}"
             )
     log.info("---END DEBUG------------------------")
-
-    display_dashboard(
-        hr_df=hr_display_df,  # your formatted top HR probs
-        wins_df=wins_display_df,  # your formatted wins df
-        run_date=str(RUN_DATE),
-    )
 
     # not printing df output until o/u preds are fixed
     # print_todays_totals_preds(df_runs)
@@ -730,7 +733,14 @@ def handler(event, context):
             "edge_v",
         ],
     ].to_csv(f"data/results/{RUN_DATE}_home_victory_preds.csv", index=False)
+    return hr_display_df, wins_display_df
 
+
+def handler(event, context):
+    hr_display_df, wins_display_df = run_pipeline(str(RUN_DATE))
+    display_dashboard(
+        hr_df=hr_display_df, wins_df=wins_display_df, run_date=str(RUN_DATE)
+    )
     # post_to_X()
     return {}
 

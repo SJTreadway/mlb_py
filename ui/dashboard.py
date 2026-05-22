@@ -14,17 +14,9 @@ import pandas as pd
 import streamlit as st
 from datetime import datetime
 
-# ── page config ────────────────────────────────────────────────────────────────
-st.set_page_config(
-    page_title="MoneyballVo | MLB Analytics",
-    page_icon="⚾",
-    layout="wide",
-    initial_sidebar_state="collapsed",
-)
 
 # ── theme / global CSS ─────────────────────────────────────────────────────────
-st.markdown(
-    """
+CSS = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;500;700&display=swap');
 
@@ -104,9 +96,7 @@ body, .stMarkdown, td, th {
     font-size: 12px; color: var(--muted);
 }
 </style>
-""",
-    unsafe_allow_html=True,
-)
+"""
 
 # ── league average thresholds ──────────────────────────────────────────────────
 LEAGUE_AVG = {
@@ -318,6 +308,17 @@ def display_dashboard(
     wins_df  : formatted win predictions DataFrame
     run_date : date string like '2026-05-16'
     """
+
+    # ── page config ────────────────────────────────────────────────────────────────
+    st.set_page_config(
+        page_title="MoneyballVo | MLB Analytics",
+        page_icon="⚾",
+        layout="wide",
+        initial_sidebar_state="collapsed",
+    )
+
+    # ── CSS ────────────────────────────────────────────────────────────────
+    st.markdown(CSS, unsafe_allow_html=True)
 
     # ── header ────────────────────────────────────────────────────────────────
     col_logo, col_title, col_right = st.columns([0.04, 0.61, 0.35])
