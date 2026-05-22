@@ -13,6 +13,7 @@ tweepy                  # X/Twitter posting
 xgboost
 lightgbm                # kept for easy swap-back (see train_homerun_model.py)
 scikit-learn
+optuna
 
 # ── Snowflake ──────────────────────────────────────────────────────────────────
 snowflake-connector-python[pandas]

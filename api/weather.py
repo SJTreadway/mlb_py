@@ -41,10 +41,11 @@ STADIUM_COORDS = {
     "SDP": (32.7076, -117.1570),
     "SD": (32.7076, -117.1570),
     "ARI": (33.4455, -112.0667),
+    "AZ": (33.4455, -112.0667),
 }
 
 # Domes get fixed values
-DOME_TEAMS = {"TBR", "TB", "HOU", "MIA", "TOR"}
+DOME_TEAMS = {"TBR", "TB", "HOU", "MIA", "TOR", "ARI", "AZ"}
 DOME_TEMP = 72
 DOME_HUMIDITY = 50
 DOME_WIND = 0

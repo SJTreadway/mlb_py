@@ -101,6 +101,7 @@ def get_park_factors_map():
         "STL": 98,
         "MIN": 103,
         "ARI": 104,
+        "AZ": 104,
         "DET": 101,
         "CLE": 98,
         "LAA": 100,

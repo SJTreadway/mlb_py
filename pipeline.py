@@ -223,6 +223,8 @@ def predict_homerun_hitter(X):
         ascending=False
     )
     print(fi.head(20))
+    
+    print(fi[fi.index.str.startswith("bvp")])
 
     probs = model.predict_proba(X[feat_cols])[:, 1]
     return probs
@@ -481,7 +483,7 @@ def print_todays_homerun_preds(df):
 
     df.to_csv(f"data/results/{RUN_DATE}_homerun_preds.csv", index=False)
 
-    # show all qualifying HR predictions (>= 15% HR prob)
+    # show all qualifying HR predictions (>= 18% HR prob)
     top_hr_df = df[df["hr_prob_numeric"] >= 0.18].sort_values(
         "hr_prob_numeric", ascending=False
     )[cols]
@@ -642,6 +644,7 @@ def run_pipeline(run_date_str):
 
     lineup_w_pitching_batting_team_weather_df.reset_index(drop=True, inplace=True)
 
+    """
     now = datetime.now(timezone.utc)
     lineup_w_pitching_batting_team_weather_df = (
         lineup_w_pitching_batting_team_weather_df[
@@ -651,6 +654,7 @@ def run_pipeline(run_date_str):
             > now
         ].copy()
     )
+    """
 
     wins_display_df = print_todays_home_victory_preds(
         lineup_w_pitching_batting_team_weather_df
