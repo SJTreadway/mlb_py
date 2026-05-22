@@ -275,13 +275,13 @@ def _build_table(df: pd.DataFrame, colored_cols: dict | None = None) -> str:
             if col == "Team":
                 logo = TEAM_LOGOS.get(str(row.get("Team", "")), "")
                 logo_html = (
-                    f'<img src="{logo}" style="height:24px;width:24px;'
-                    f"vertical-align:middle;margin-right:6px;"
-                    f'background:white;border-radius:50%;padding:2px;">'
+                    f'<img src="{logo}" style="height:28px;width:28px;'
+                    f"vertical-align:middle;"
+                    f'background:white;border-radius:30%; padding:4px">'
                     if logo
                     else ""
                 )
-                cells += f"<td>{logo_html}</td>"
+                cells += f'<td style="text-align:center;">{logo_html}</td>'
             elif col == "Date":
                 cells += f"<td>{_format_date(val)}</td>"
             else:
@@ -336,7 +336,7 @@ def display_dashboard(
         st.markdown(
             "<h1 style=\"font-family:'IBM Plex Mono',monospace;font-size:18px;"
             "font-weight:600;color:#00e676;letter-spacing:0.05em;margin:0;"
-            'padding-top:6px;margin-left:-16px;">MoneyballVo | MLB Analytics</h1>',
+            'padding-top:6px;margin-left:-16px;">@MoneyballVo | MLB Analytics</h1>',
             unsafe_allow_html=True,
         )
 
