@@ -81,14 +81,14 @@ TOMORROW_GAMES = int(os.environ["TOMORROW_GAMES"])
 RUN_DATE = date.today() if TOMORROW_GAMES == 0 else date.today() + timedelta(days=1)
 
 # File locations
-# WINS_MODEL_FILE = "models/win_model_2026v1.pkl"
-WINS_MODEL_FILE = "models/win_model_20260521.pkl"
+WINS_MODEL_FILE = "models/win_model_2026v1.pkl"
 RUNS_MODEL_FILE = "models/runs_scored_model_v1.pkl"
 HR_MODEL_FILE = "models/homerun_model_2026v1.pkl"
 BATTER_DICT_FILE = f"data/daily/{RUN_DATE}_batter_dict.pkl"
 PITCHER_DICT_FILE = f"data/daily/{RUN_DATE}_pitcher_dict.pkl"
 BVP_DICT_FILE = f"data/daily/{RUN_DATE}_bvp_dict.pkl"
 HR_ODDS_CACHE_FILE = f"data/daily/{RUN_DATE}_hr_odds_cache.pkl"
+PREDS_FILE = f"data/results/{RUN_DATE}_home_victory_preds.csv", index=False)
 
 # Set of features we will predict on
 RUNS_SCORED_FEAT_SET = [
@@ -704,20 +704,28 @@ def run_pipeline(run_date_str):
     # log.info(f'\nRUNS SCORED FEATS:\n{df_runs.loc[:, RUNS_SCORED_FEAT_SET]}')
 
     log.info(f"\nSaving Predictions DataFrames to CSV")
-    lineup_w_pitching_batting_team_weather_df.loc[
-        :,
-        [
-            "date_dblhead",
-            "game_time",
-            "team_h_full",
-            "team_v_full",
-            "prob",
-            "moneyline_h",
-            "edge_h",
-            "moneyline_v",
-            "edge_v",
-        ],
-    ].to_csv(f"data/results/{RUN_DATE}_home_victory_preds.csv", index=False)
+    preds_cols = [
+        "date_dblhead",
+        "game_time",
+        "team_h_full",
+        "team_v_full",
+        "prob",
+        "moneyline_h",
+        "edge_h",
+        "moneyline_v",
+        "edge_v",
+    ]
+    new_preds = lineup_w_pitching_batting_team_weather_df.loc[:, preds_cols]
+
+    if os.path.exists(PREDS_FILE):
+        existing = pd.read_csv(PREDS_FILE)
+        combined = pd.concat([existing, new_preds], ignore_index=True)
+        combined = combined.drop_duplicates(
+            subset=["team_h_full", "team_v_full"], keep="last"
+        )
+        combined.to_csv(PREDS_FILE, index=False)
+    else:
+        new_preds.to_csv(PREDS_FILE, index=False)
     return hr_display_df, wins_display_df
 
 
