@@ -161,8 +161,41 @@ TEAM_ABBREV = {
     "Washington Nationals": "WSN",
 }
 
+MLBAM_TEAM_ID_TO_ABBR = {
+    108: "LAA",
+    109: "ARI",
+    110: "BAL",
+    111: "BOS",
+    112: "CHC",
+    113: "CIN",
+    114: "CLE",
+    115: "COL",
+    116: "DET",
+    117: "HOU",
+    118: "KCR",
+    119: "LAD",
+    120: "WSN",
+    121: "NYM",
+    133: "ATH",
+    134: "PIT",
+    135: "SDP",
+    136: "SEA",
+    137: "SFG",
+    138: "STL",
+    139: "TBR",
+    140: "TEX",
+    141: "TOR",
+    142: "MIN",
+    143: "PHI",
+    144: "ATL",
+    145: "CHW",
+    146: "MIA",
+    147: "NYY",
+    158: "MIL",
+}
 
-# ── mlbamid --> name (team) lookup ─────────────────────────────────────────────────────────
+
+# ── player mlbamid --> name (team) lookup ─────────────────────────────────────────────────────────
 def resolve_names(mlbam_ids: list[str]) -> dict[str, str]:
     if not mlbam_ids:
         return {}
@@ -176,7 +209,6 @@ def resolve_names(mlbam_ids: list[str]) -> dict[str, str]:
     )
     result = {}
     for p in resp.json().get("people", []):
-        print(p)
         name = p["fullName"]
         pos = p.get("primaryPosition", {}).get("abbreviation", "")
         team = TEAM_ABBREV.get(p.get("currentTeam", {}).get("name", ""), "")

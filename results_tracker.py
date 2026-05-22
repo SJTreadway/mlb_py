@@ -76,7 +76,11 @@ def fetch_results(run_date: str) -> list[dict]:
     rows = []
     for date_obj in resp.json().get("dates", []):
         for game in date_obj.get("games", []):
-            if game.get("status", {}).get("abstractGameState") != "Final":
+            status = game.get("status", {})
+            if (
+                status.get("abstractGameState") != "Final"
+                or status.get("detailedState") == "Postponed"
+            ):
                 continue
             home = game["teams"]["home"]
             away = game["teams"]["away"]
@@ -85,6 +89,8 @@ def fetch_results(run_date: str) -> list[dict]:
             rows.append(
                 {
                     "game_pk": game["gamePk"],
+                    "team_h_abbr": home["team"]["abbreviation"],
+                    "team_v_abbr": away["team"]["abbreviation"],
                     "team_h_full": home["team"]["name"],
                     "team_v_full": away["team"]["name"],
                     "home_score": home_score,
@@ -124,8 +130,9 @@ def update_results(run_date: str) -> None:
         _append_to_master(actual_df)
         return
 
-    # ── join predictions to actual results on home team ───────────────────────
+    # ── join predictions to actual results on game_pk ─────────────────────────
     merged = preds_df.merge(actual_df, on=["team_h_full", "team_v_full"], how="inner")
+    log.info(f"  {len(merged)} games matched to predictions")
 
     # ── derive tracking columns ───────────────────────────────────────────────
     merged["run_date"] = run_date
@@ -134,7 +141,6 @@ def update_results(run_date: str) -> None:
         merged["actual_home_victory"] == merged["model_home_victory"]
     ).astype(int)
 
-    # which side did the model back?
     merged["model_pick"] = merged["prob"].apply(
         lambda p: "H" if float(p) >= 0.5 else "V"
     )
@@ -147,7 +153,6 @@ def update_results(run_date: str) -> None:
         axis=1,
     )
 
-    # units P&L
     def row_units(r):
         prob = float(r["prob"])
         if prob >= 0.5:
@@ -158,29 +163,37 @@ def update_results(run_date: str) -> None:
             won = r["actual_home_victory"] == 0
         return _calc_units(prob, ml, won)
 
+    merged["edge"] = merged.apply(
+        lambda r: r["edge_v"] if r["model_pick"] == "V" else r["edge_h"],
+        axis=1,
+    )
+    merged["moneyline"] = merged.apply(
+        lambda r: r["moneyline_v"] if r["model_pick"] == "V" else r["moneyline_h"],
+        axis=1,
+    )
     merged["units_profit"] = merged.apply(row_units, axis=1)
 
     # ── select output columns ─────────────────────────────────────────────────
     out_cols = [
         "run_date",
-        "team_h",
-        "team_v",
+        "game_pk",
+        "team_h_abbr",
+        "team_v_abbr",
+        "team_h_full",
+        "team_v_full",
         "starting_pitcher_name_h",
         "starting_pitcher_name_v",
-        "prob",  # model's home win probability
-        "home_victory",  # model's predicted winner (1=H, 0=V)
-        "model_pick",  # "H" or "V"
-        "moneyline_h",
-        "moneyline_v",
-        "edge_h",
-        "edge_v",
+        "prob",
+        "model_pick",
+        "moneyline",
+        "edge",
         "actual_home_victory",
         "actual_run_diff",
         "home_score",
         "away_score",
-        "model_correct",  # did predicted side win?
-        "pick_correct",  # did model's pick win?
-        "units_profit",  # P&L if 1U bet on model's pick
+        "model_correct",
+        "pick_correct",
+        "units_profit",
     ]
     out_cols = [c for c in out_cols if c in merged.columns]
     out = merged[out_cols]
@@ -198,13 +211,11 @@ def update_results(run_date: str) -> None:
 
 
 def _append_to_master(df: pd.DataFrame) -> None:
-    """Append rows to master results CSV, skipping duplicates."""
+    """Append rows to master results CSV, deduplicating on game_pk."""
     existing = _download_from_s3()
     if existing is not None:
         combined = pd.concat([existing, df], ignore_index=True)
-        combined = combined.drop_duplicates(
-            subset=["run_date", "team_h_full", "team_v_full"], keep="last"
-        )
+        combined = combined.drop_duplicates(subset=["game_pk"], keep="last")
     else:
         combined = df
     _upload_to_s3(combined)
@@ -231,19 +242,13 @@ def print_summary() -> None:
     log.info(f"  Total P&L     : {units:+.2f}U")
     log.info(f"  ROI           : {units/n:.3f}U per game")
 
-    # by edge bucket
-    if "edge_h" in df.columns:
+    if "edge" in df.columns:
         log.info(f"\n  By edge bucket (model's pick side):")
-        df["edge_pick"] = df.apply(
-            lambda r: (
-                float(str(r["edge_h"]).replace("%", ""))
-                if r["model_pick"] == "H"
-                else float(str(r["edge_v"]).replace("%", ""))
-            ),
-            axis=1,
+        df["edge_val"] = pd.to_numeric(
+            df["edge"].astype(str).str.replace("%", ""), errors="coerce"
         )
         for lo, hi in [(4, 8), (8, 15), (15, 100)]:
-            bucket = df[(df["edge_pick"] >= lo) & (df["edge_pick"] < hi)]
+            bucket = df[(df["edge_val"] >= lo) & (df["edge_val"] < hi)]
             if len(bucket):
                 log.info(
                     f"    {lo}-{hi}%: {bucket['pick_correct'].sum()}/{len(bucket)} "

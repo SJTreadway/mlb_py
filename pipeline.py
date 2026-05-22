@@ -63,7 +63,8 @@ load_dotenv()
 
 DISPLAY_EDGE_ONLY = 1
 EDGE_THRESHOLD = 4.0
-HR_EDGE_THRESHOLD = 1.0
+HR_PROB_THRESHOLD = 0.18  # model must believe in the guy
+HR_EDGE_THRESHOLD = 2.0  # at least 2pp of edge over implied
 
 # Force Refresh Data
 REFRESH_DATA = int(os.environ.get("REFRESH_DATA", 0))
@@ -219,13 +220,6 @@ def predict_homerun_hitter(X):
     feat_cols = artifact["features"]
     X["matchup"] = pd.Categorical(X["matchup"])
 
-    fi = pd.Series(model.feature_importances_, index=feat_cols).sort_values(
-        ascending=False
-    )
-    print(fi.head(20))
-
-    print(fi[fi.index.str.startswith("bvp")])
-
     probs = model.predict_proba(X[feat_cols])[:, 1]
     return probs
 
@@ -264,6 +258,19 @@ def filter_games_by_edge(df):
         )
     ]
     return filtered_df
+
+
+def filter_hr_by_edge(df):
+    filtered = df.copy()
+    filtered["true_edge"] = (
+        filtered["hr_prob_numeric"] - filtered["implied_numeric"]
+    ) * 100
+
+    filtered = filtered[
+        (filtered["hr_prob_numeric"] >= HR_PROB_THRESHOLD)
+        & (filtered["true_edge"] >= HR_EDGE_THRESHOLD)
+    ]
+    return filtered.sort_values("true_edge", ascending=False)
 
 
 def get_player_name_map(mlbam_ids):
@@ -424,11 +431,11 @@ def print_todays_homerun_preds(df):
     )
 
     # Format for presentation
-    if "opp_HR_per_BF_75" in df.columns:
+    if "opp_hr_per_bf_75" in df.columns:
         df["P-HR/BF"] = df["opp_hr_per_bf_75"].map(
             lambda x: f"{x:.3f}" if pd.notna(x) else "N/A"
         )
-    if "EV_162" in df.columns:
+    if "ev_162" in df.columns:
         df["EV"] = df["ev_162"].map(lambda x: f"{x:.1f}" if pd.notna(x) else "N/A")
     if "wind_spd" in df.columns:
         df["Wind"] = df["wind_spd"].map(
@@ -438,6 +445,7 @@ def print_todays_homerun_preds(df):
         df["Wind Out"] = df["wind_out"].map(
             lambda x: f"{x:+.1f}" if pd.notna(x) else "N/A"
         )
+    df["implied_numeric"] = df["Implied"]  # save numeric before formatting
 
     # all % cols
     pct_cols = {
@@ -496,12 +504,14 @@ def print_todays_homerun_preds(df):
 
     df.to_csv(f"data/results/{RUN_DATE}_homerun_preds.csv", index=False)
 
-    # show all qualifying HR predictions (>= 18% HR prob)
-    top_hr_df = df[df["hr_prob_numeric"] >= 0.18].sort_values(
-        "hr_prob_numeric", ascending=False
-    )[cols]
+    # show all qualifying HR predictions (>= 19% HR prob)
+    # top_hr_df = df[df["hr_prob_numeric"] >= 0.19].sort_values(
+    #    "hr_prob_numeric", ascending=False
+    # )[cols]
 
-    return top_hr_df
+    top_hr_df = filter_hr_by_edge(df)
+
+    return top_hr_df[cols]
 
 
 def print_todays_totals_preds(df):

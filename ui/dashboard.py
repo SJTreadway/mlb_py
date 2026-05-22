@@ -106,6 +106,7 @@ LEAGUE_AVG = {
     "SWSPOT%": 0.334,
     "HR/PA": 0.038,
     "FB%": 0.261,
+    "P-HR/BF": 0.032,  # pitcher HR allowed per batter faced
 }
 
 TEAM_LOGOS = {
@@ -151,7 +152,7 @@ TEAM_LOGOS = {
 }
 
 
-# ── color helpers (unchanged from original) ────────────────────────────────────
+# ── color helpers ──────────────────────────────────────────────────────────────
 
 
 def _stat_color(col: str, val_str: str) -> str:
@@ -175,6 +176,19 @@ def _stat_color(col: str, val_str: str) -> str:
             if "%" in str(val_str)
             else float(str(val_str).replace(" mph", ""))
         )
+
+        # For P-HR/BF: higher = worse pitcher = better for batter (invert scale)
+        if col == "P-HR/BF":
+            diff = (val - avg) / avg
+            if diff >= 0.20:
+                return "strong-pos"
+            elif diff >= 0.05:
+                return "pos"
+            elif diff >= -0.10:
+                return "yellow"
+            else:
+                return "neg"
+
         diff = (val - avg) / avg
         if diff >= 0.20:
             return "strong-pos"
@@ -237,14 +251,13 @@ def _prob_color(val_str: str) -> str:
         return "neutral"
 
 
-# ── HTML table builder (same logic, Streamlit renders via markdown) ─────────────
+# ── HTML table builder ─────────────────────────────────────────────────────────
 
 
 def _format_date(val: str) -> str:
-    """Convert date_dblhead (YYYYMMDD + 0/1) → MM/DD/YYYY."""
     try:
         s = str(int(val))
-        date_str = s[:-1]  # strip trailing doubleheader digit
+        date_str = s[:-1]
         return datetime.strptime(date_str, "%Y%m%d").strftime("%m/%d/%Y")
     except Exception:
         return str(val)
@@ -301,15 +314,6 @@ def display_dashboard(
     wins_df: pd.DataFrame,
     run_date: str,
 ) -> None:
-    """
-    Render the prediction dashboard in Streamlit.
-
-    hr_df    : formatted HR top predictions DataFrame
-    wins_df  : formatted win predictions DataFrame
-    run_date : date string like '2026-05-16'
-    """
-
-    # ── page config ────────────────────────────────────────────────────────────────
     st.set_page_config(
         page_title="MoneyballVo | MLB Analytics",
         page_icon="⚾",
@@ -317,10 +321,9 @@ def display_dashboard(
         initial_sidebar_state="collapsed",
     )
 
-    # ── CSS ────────────────────────────────────────────────────────────────
     st.markdown(CSS, unsafe_allow_html=True)
 
-    # ── header ────────────────────────────────────────────────────────────────
+    # ── header ─────────────────────────────────────────────────────────────────
     col_logo, col_title, col_right = st.columns([0.04, 0.61, 0.35])
 
     with col_logo:
@@ -356,7 +359,7 @@ def display_dashboard(
 
     st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
 
-    # ── HR predictions ────────────────────────────────────────────────────────
+    # ── HR predictions ─────────────────────────────────────────────────────────
     st.markdown(
         '<div style="margin-bottom:14px;">'
         '<span class="badge badge-hr">HR</span>'
@@ -377,6 +380,7 @@ def display_dashboard(
         "SWSPOT%": lambda v: _stat_color("SWSPOT%", v),
         "HR/PA": lambda v: _stat_color("HR/PA", v),
         "FB%": lambda v: _stat_color("FB%", v),
+        "P-HR/BF": lambda v: _stat_color("P-HR/BF", v),
         "Platoon": lambda v: _stat_color("HR/PA", v),
     }
 
@@ -389,7 +393,7 @@ def display_dashboard(
 
     st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
 
-    # ── win predictions ───────────────────────────────────────────────────────
+    # ── win predictions ────────────────────────────────────────────────────────
     st.markdown(
         '<div style="margin-bottom:14px;">'
         '<span class="badge badge-value">VALUE</span>'

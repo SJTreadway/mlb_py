@@ -1,10 +1,13 @@
 import argparse
 import os
 import pickle
+import time
 import requests
 import pandas as pd
 import numpy as np
 from datetime import date
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Lock
 
 STADIUM_COORDS = {
     "COL": (39.7559, -104.9942),
@@ -70,7 +73,7 @@ STADIUM_CF_BEARING = {
     "PHI": 340,
     "STL": 340,
     "MIL": 220,
-    "MIN": 330,
+    "MIN": 330,  # Target Field (open air) — CF roughly NNW
     "DET": 170,
     "CLE": 210,
     "CIN": 340,
@@ -88,7 +91,7 @@ STADIUM_CF_BEARING = {
     "ATH": 290,
     "OAK": 290,
     "LAS": 315,  # Las Vegas Ballpark — CF roughly NW; verify when stadium finalised
-    "SEA": 5,
+    "SEA": 5,  # T-Mobile Park (retractable, often open) — CF roughly N
     "SDP": 310,
     "SD": 310,
 }
@@ -222,19 +225,55 @@ def _extract_at_hour(hourly, game_hour=18):
     )
 
 
+MLBAM_TEAM_ID_TO_ABBR = {
+    108: "LAA",
+    109: "ARI",
+    110: "BAL",
+    111: "BOS",
+    112: "CHC",
+    113: "CIN",
+    114: "CLE",
+    115: "COL",
+    116: "DET",
+    117: "HOU",
+    118: "KCR",
+    119: "LAD",
+    120: "WSN",
+    121: "NYM",
+    133: "ATH",
+    134: "PIT",
+    135: "SDP",
+    136: "SEA",
+    137: "SFG",
+    138: "STL",
+    139: "TBR",
+    140: "TEX",
+    141: "TOR",
+    142: "MIN",
+    143: "PHI",
+    144: "ATL",
+    145: "CHW",
+    146: "MIA",
+    147: "NYY",
+    158: "MIL",
+}
+
+
 def _fetch_game_log_from_snowflake(start_year: int, end_year: int) -> pd.DataFrame:
     """Pull distinct game-date + home-team rows from Snowflake GAME_RESULTS."""
     import snowflake.connector
     from cryptography.hazmat.backends import default_backend
     from cryptography.hazmat.primitives import serialization
 
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
     key_path = os.path.expanduser(os.environ["SNOWFLAKE_PRIVATE_KEY_PATH"])
-    passphrase = os.environ.get("SNOWFLAKE_PRIVATE_KEY_PASSPHRASE")
-    pw_bytes = passphrase.encode() if passphrase else None
 
     with open(key_path, "rb") as f:
         p_key = serialization.load_pem_private_key(
-            f.read(), password=pw_bytes, backend=default_backend()
+            f.read(), password=None, backend=default_backend()
         )
     private_key = p_key.private_bytes(
         encoding=serialization.Encoding.DER,
@@ -321,46 +360,70 @@ def backfill_cache(
         games = _fetch_game_log_from_snowflake(start_year, end_year)
 
     games = games.drop_duplicates(["game_date", "home_team"])
-    print(f"Game-log rows to process: {len(games):,}")
 
-    fetched = skipped = failed = 0
-
+    # Pre-fill domes and already-cached rows; collect only rows needing API calls
+    pending = []
     for _, row in games.iterrows():
         key = (row["game_date"].date(), row["home_team"])
-        if key in cache:
-            skipped += 1
-            continue
-
         home_team = row["home_team"]
-
-        # Domes: fixed environment, no API call needed
+        if key in cache:
+            continue
         if home_team in DOME_TEAMS:
             cache[key] = (DOME_TEMP, DOME_HUMIDITY, DOME_WIND, DOME_WIND)
-            fetched += 1
             continue
-
-        coords = STADIUM_COORDS.get(home_team)
-        if coords is None:
+        if STADIUM_COORDS.get(home_team) is None:
             print(f"  No coords for {home_team} — skipping")
-            failed += 1
             continue
+        pending.append(row)
 
+    print(
+        f"Game-log rows to process: {len(games):,}  (API calls needed: {len(pending):,})"
+    )
+
+    cache_lock = Lock()
+    fetched = failed = 0
+
+    def fetch_one(row):
+        key = (row["game_date"].date(), row["home_team"])
+        coords = STADIUM_COORDS[row["home_team"]]
         date_str = row["game_date"].strftime("%Y-%m-%d")
         hour = int(row["game_hour"]) if "game_hour" in row.index else game_hour
-
         try:
+            time.sleep(0.5)  # rate limiting — increase if hitting 429s
             hourly = _fetch_hourly(*coords, date_str)
             temp, humidity, wind_spd, wind_dir = _extract_at_hour(hourly, hour)
-            cf_bearing = STADIUM_CF_BEARING.get(home_team, 0)
+            cf_bearing = STADIUM_CF_BEARING.get(row["home_team"], 0)
             wind_out = compute_wind_out(wind_spd, wind_dir, cf_bearing)
-            cache[key] = (temp, humidity, wind_spd, wind_out)
-            fetched += 1
+            with cache_lock:
+                cache[key] = (temp, humidity, wind_spd, wind_out)
+            return "ok"
         except Exception as e:
             print(f"  Failed {key}: {e}")
-            failed += 1
+            return "fail"
 
-    print(f"Fetched: {fetched}  Skipped (already cached): {skipped}  Failed: {failed}")
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        futures = {executor.submit(fetch_one, row): row for row in pending}
+        for i, future in enumerate(as_completed(futures), 1):
+            result = future.result()
+            if result == "ok":
+                fetched += 1
+            else:
+                failed += 1
+            if i % 100 == 0:
+                print(f"  Progress: {i}/{len(pending)} ({fetched} ok, {failed} failed)")
+                with cache_lock:
+                    os.makedirs(
+                        os.path.dirname(os.path.abspath(cache_path)), exist_ok=True
+                    )
+                    with open(cache_path, "wb") as f:
+                        pickle.dump(cache, f)
+                print(f"  Checkpoint saved ({len(cache):,} total entries)")
 
+    print(
+        f"Fetched: {fetched}  Skipped (cached/dome): {len(games) - len(pending):,}  Failed: {failed}"
+    )
+
+    os.makedirs(os.path.dirname(os.path.abspath(cache_path)), exist_ok=True)
     with open(cache_path, "wb") as f:
         pickle.dump(cache, f)
     print(f"Cache saved → {cache_path}  (total entries: {len(cache):,})")
@@ -369,11 +432,6 @@ def backfill_cache(
 # ── CLI ────────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    import os
-    from dotenv import load_dotenv
-
-    load_dotenv()
-
     parser = argparse.ArgumentParser(
         description="Backfill weather cache via Open-Meteo"
     )
@@ -386,12 +444,9 @@ if __name__ == "__main__":
         help="CSV with game_date + home_team (omit to pull from Snowflake)",
     )
     parser.add_argument("--start-year", type=int, default=2015)
-    parser.add_argument("--end-year", type=int, default=2025)
+    parser.add_argument("--end-year", type=int, default=2019)
     parser.add_argument(
-        "--game-hour",
-        type=int,
-        default=18,
-        help="Local hour used as first-pitch proxy",
+        "--game-hour", type=int, default=18, help="Local hour used as first-pitch proxy"
     )
     args = parser.parse_args()
 
