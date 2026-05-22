@@ -223,7 +223,7 @@ def predict_homerun_hitter(X):
         ascending=False
     )
     print(fi.head(20))
-    
+
     print(fi[fi.index.str.startswith("bvp")])
 
     probs = model.predict_proba(X[feat_cols])[:, 1]
@@ -453,9 +453,22 @@ def print_todays_homerun_preds(df):
         if k in df.columns:
             df[v] = df[k].map(lambda x: f"{x:.1%}" if pd.notna(x) else "N/A")
 
+    def _format_bvp(row):
+        pa = row.get("bvp_pa", 0) or 0
+        hr = row.get("bvp_hr", 0) or 0
+        if pa == 0:
+            return "-"
+        elif hr > 0:
+            return f"{int(hr)}/{int(pa)}"
+        else:
+            return f"{int(pa)} PA"
+
+    df["BvP"] = df.apply(_format_bvp, axis=1)
+
     cols = [
         "Player",
         "Team",
+        "BvP",
         "Barrel%",
         "EV",
         "SWSPOT%",

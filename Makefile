@@ -40,7 +40,11 @@ train\:win:
 	python3.11 train/train_win_model.py
 
 train\:homerun:
-	python3.11 train/train_homerun_model.py
+	python3.11 TUNE_HYPERPARAMS=0 train/train_homerun_model.py
+
+# w/ Optuna Hyperparams Tuning
+train\:homerun\:tune:
+	python3.11 TUNE_HYPERPARAMS=1 train/train_homerun_model.py
 
 # Run Model Training Script Without Training
 dryrun\:win:

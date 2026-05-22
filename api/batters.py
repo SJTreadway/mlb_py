@@ -236,11 +236,18 @@ def load_bvp_data_from_snowflake(
         SELECT
             BATTER,
             PITCHER,
-            SUM(BVP_PA_PRIOR) + SUM(PA)  AS total_pa,
-            SUM(BVP_HR_PRIOR) + SUM(HR)  AS total_hr
-        FROM {db}.{schema}.BVP_HISTORY
-        WHERE (BATTER, PITCHER) IN ({pairs_sql})
-        GROUP BY BATTER, PITCHER
+            BVP_PA_PRIOR + PA  AS total_pa,
+            BVP_HR_PRIOR + HR  AS total_hr
+        FROM (
+            SELECT *,
+                ROW_NUMBER() OVER (
+                    PARTITION BY BATTER, PITCHER
+                    ORDER BY GAME_DATE DESC
+                ) AS rn
+            FROM {db}.{schema}.BVP_HISTORY
+            WHERE (BATTER, PITCHER) IN ({pairs_sql})
+        )
+        WHERE rn = 1
     """
 
     log.info(
