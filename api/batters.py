@@ -34,6 +34,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+from helpers import resolve_names
+
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 log = logging.getLogger(__name__)
@@ -507,9 +509,10 @@ def process_batting_data(
         log.warning(
             f"{missing} batters not found in Snowflake — position defaults will be used"
         )
+        names = list(resolve_names(missing_ids).values())
         st.warning(
             f"⚠️ {missing} batter(s) not found in Snowflake — position defaults used. "
-            f"IDs: {', '.join(missing_ids)}",
+            f"{', '.join(names)}",
             icon=None,
         )
 

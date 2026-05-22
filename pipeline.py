@@ -657,7 +657,6 @@ def run_pipeline(run_date_str):
 
     lineup_w_pitching_batting_team_weather_df.reset_index(drop=True, inplace=True)
 
-    """
     now = datetime.now(timezone.utc)
     lineup_w_pitching_batting_team_weather_df = (
         lineup_w_pitching_batting_team_weather_df[
@@ -667,7 +666,6 @@ def run_pipeline(run_date_str):
             > now
         ].copy()
     )
-    """
 
     wins_display_df = print_todays_home_victory_preds(
         lineup_w_pitching_batting_team_weather_df
@@ -698,36 +696,6 @@ def run_pipeline(run_date_str):
         hr_display_df = print_todays_homerun_preds(df_hr)
     else:
         log.info("\nHR df is empty — no batter rows built")
-
-    # DEBUG
-    log.info("---START DEBUG------------------------")
-    log.info(
-        f"hr_prob stats: mean={df_hr['hr_prob'].mean():.4f} max={df_hr['hr_prob'].max():.4f}"
-    )
-    log.info(f"hr_prob distribution: {pd.Series(hr_probs).describe()}")
-    log.info(f"pct > 0.10: {(pd.Series(hr_probs) > 0.10).mean():.1%}")
-    log.info(f"pct > 0.15: {(pd.Series(hr_probs) > 0.15).mean():.1%}")
-    log.info(f"pct > 0.20: {(pd.Series(hr_probs) > 0.20).mean():.1%}")
-    log.info(f"opp_hr_per_bf_35 mean: {df_hr['opp_hr_per_bf_35'].mean():.4f}")
-    log.info(f"opp_fb_perc_35 mean: {df_hr['opp_fb_perc_35'].mean():.4f}")
-    log.info(f"hr_per_pa_162 mean: {df_hr['hr_per_pa_162'].mean():.4f}")
-    log.info(f"barrel_162 mean: {df_hr['barrel_162'].mean():.4f}")
-    log.info(f"matchup value counts: {df_hr['matchup'].value_counts().to_dict()}")
-
-    log.info("=== Feature distribution check ===")
-    for col in [
-        "barrel_30",
-        "obp_162",
-        "hr_per_pa_162",
-        "park_hr_factor",
-        "opp_hr_per_bf_35",
-    ]:
-        if col in df_hr.columns:
-            s = df_hr[col].describe()
-            log.info(
-                f"{col}: mean={s['mean']:.4f} min={s['min']:.4f} max={s['max']:.4f}"
-            )
-    log.info("---END DEBUG------------------------")
 
     # not printing df output until o/u preds are fixed
     # print_todays_totals_preds(df_runs)

@@ -1,4 +1,5 @@
 import numpy as np
+import requests
 
 
 def roll_column(df, col, winsize):
@@ -125,3 +126,59 @@ def get_park_factors_map():
         "CHW": 99,
         "CWS": 99,
     }
+
+
+TEAM_ABBREV = {
+    "Arizona Diamondbacks": "ARI",
+    "Atlanta Braves": "ATL",
+    "Baltimore Orioles": "BAL",
+    "Boston Red Sox": "BOS",
+    "Chicago Cubs": "CHC",
+    "Chicago White Sox": "CHW",
+    "Cincinnati Reds": "CIN",
+    "Cleveland Guardians": "CLE",
+    "Colorado Rockies": "COL",
+    "Detroit Tigers": "DET",
+    "Houston Astros": "HOU",
+    "Kansas City Royals": "KCR",
+    "Los Angeles Angels": "LAA",
+    "Los Angeles Dodgers": "LAD",
+    "Miami Marlins": "MIA",
+    "Milwaukee Brewers": "MIL",
+    "Minnesota Twins": "MIN",
+    "New York Mets": "NYM",
+    "New York Yankees": "NYY",
+    "Athletics": "ATH",
+    "Philadelphia Phillies": "PHI",
+    "Pittsburgh Pirates": "PIT",
+    "San Diego Padres": "SDP",
+    "San Francisco Giants": "SFG",
+    "Seattle Mariners": "SEA",
+    "St. Louis Cardinals": "STL",
+    "Tampa Bay Rays": "TBR",
+    "Texas Rangers": "TEX",
+    "Toronto Blue Jays": "TOR",
+    "Washington Nationals": "WSN",
+}
+
+
+# ── mlbamid --> name (team) lookup ─────────────────────────────────────────────────────────
+def resolve_names(mlbam_ids: list[str]) -> dict[str, str]:
+    if not mlbam_ids:
+        return {}
+    resp = requests.get(
+        "https://statsapi.mlb.com/api/v1/people",
+        params={
+            "personIds": ",".join(mlbam_ids),
+            "hydrate": "currentTeam",
+        },
+        timeout=10,
+    )
+    result = {}
+    for p in resp.json().get("people", []):
+        print(p)
+        name = p["fullName"]
+        pos = p.get("primaryPosition", {}).get("abbreviation", "")
+        team = TEAM_ABBREV.get(p.get("currentTeam", {}).get("name", ""), "")
+        result[str(p["id"])] = f"{name} ({pos}, {team})"
+    return result

@@ -26,6 +26,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+from helpers import resolve_names
+
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 log = logging.getLogger(__name__)
@@ -403,9 +405,10 @@ def process_pitching_data(
         log.warning(
             f"{missing} starters not found in Snowflake — using league-average defaults"
         )
+        names = list(resolve_names(missing_ids).values())
         st.warning(
             f"⚠️ {missing} starter(s) not found in Snowflake — league-average defaults used. "
-            f"IDs: {', '.join(missing_ids)}",
+            f"{', '.join(names)}",
             icon=None,
         )
 
@@ -422,11 +425,8 @@ def process_pitching_data(
             f"{missing_teams} teams missing bullpen data — using league-average defaults"
         )
         """ TODO: UNCOMMENT ONCE BULLPEN DATA IS DEPENDABLE; RIGHT NOW JUST NOISE IN UI
-        st.warning(
-            f"⚠️ {missing_teams} team(s) missing bullpen data — league-average defaults used. "
-            f"Teams: {', '.join(missing_team_list)}",
-            icon=None,
-        )
+        st.warning(f"⚠️ {missing_teams} team(s) missing bullpen data — league-average defaults used. "
+           f"Teams: {', '.join(missing_team_list)}", icon=None)
         """
 
     # ── 5. assemble Bpen_ columns ─────────────────────────────────────────────

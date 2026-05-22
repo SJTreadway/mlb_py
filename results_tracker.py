@@ -218,6 +218,9 @@ def print_summary() -> None:
         return
 
     n = len(df)
+    if "pick_correct" not in df.columns or df["pick_correct"].isna().all():
+        log.info("No matched results yet")
+        return
     correct = df["pick_correct"].sum()
     units = df["units_profit"].sum()
 
