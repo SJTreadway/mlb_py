@@ -173,6 +173,13 @@ def update_results(run_date: str) -> None:
     )
     merged["units_profit"] = merged.apply(row_units, axis=1)
 
+    # ── only track games where we'd actually bet (edge >= 4%) ─────────────────
+    edge_numeric = pd.to_numeric(
+        merged["edge"].astype(str).str.replace("%", ""), errors="coerce"
+    )
+    merged = merged[edge_numeric >= 4.0]
+    log.info(f"  {len(merged)} games with edge >= 4% (trackable bets)")
+
     # ── select output columns ─────────────────────────────────────────────────
     out_cols = [
         "run_date",
