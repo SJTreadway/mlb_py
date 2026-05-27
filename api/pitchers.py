@@ -165,6 +165,7 @@ def load_starter_data_from_snowflake(pitcher_ids: list[str]) -> dict[str, pd.Ser
             SELECT MLBAM_ID, MAX(GAME_DATE) AS latest_date
             FROM {db}.{schema}.PITCHER_ROLLING_FEATURES
             WHERE MLBAM_ID IN ({ids})
+            AND HR_PER_BF_10 IS NOT NULL
             GROUP BY MLBAM_ID
         ) latest
             ON p.MLBAM_ID   = latest.MLBAM_ID
@@ -225,9 +226,10 @@ def load_bullpen_data_from_snowflake(teams: list[str]) -> dict[str, dict]:
             FROM {db}.{schema}.PITCHER_ROLLING_FEATURES p
             JOIN {db}.{schema}.GAME_RESULTS gr ON p.game_pk = gr.game_pk
             WHERE p.gs = 0
-              AND p.game_date >= DATEADD(day, -90, CURRENT_DATE)
-              AND CASE WHEN p.is_home_pitcher = 1 THEN gr.team_h ELSE gr.team_v END
-                  IN ({team_list})
+                AND p.game_date >= DATEADD(day, -90, CURRENT_DATE)
+                AND p.hr_per_bf_10 IS NOT NULL
+                AND CASE WHEN p.is_home_pitcher = 1 THEN gr.team_h ELSE gr.team_v END
+                    IN ({team_list})
         )
         SELECT
             team,
