@@ -63,7 +63,7 @@ load_dotenv()
 
 DISPLAY_EDGE_ONLY = 1
 EDGE_THRESHOLD = 4.0
-HR_PROB_THRESHOLD = 0.18  # model must believe in the guy
+HR_PROB_THRESHOLD = 0.20  # model must believe in the guy
 HR_EDGE_THRESHOLD = 2.0  # at least 2pp of edge over implied
 
 # Force Refresh Data
