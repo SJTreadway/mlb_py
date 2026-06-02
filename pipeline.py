@@ -268,7 +268,14 @@ def filter_hr_by_edge(df):
 
     filtered = filtered[
         (filtered["hr_prob_numeric"] >= HR_PROB_THRESHOLD)
-        & ~((filtered["FB%"] == "35.0%") & (filtered["P-HR/BF"] == "0.032"))
+        & ~(
+            (filtered["opp_hr_per_bf_10"] == 0.032)
+            & (filtered["opp_hr_per_bf_35"] == 0.032)
+            & (filtered["opp_hr_per_bf_75"] == 0.032)
+            & (filtered["opp_fb_perc_10"] == 0.35)
+            & (filtered["opp_fb_perc_35"] == 0.35)
+            & (filtered["opp_fb_perc_75"] == 0.35)
+        )
         & (filtered["Odds"].notna())
     ]
     return filtered.sort_values("hr_prob_numeric", ascending=False)
