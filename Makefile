@@ -43,6 +43,9 @@ train\:homerun:
 	python3.11 train/train_homerun_model.py
 
 # w/ Optuna Hyperparams Tuning
+train\:win\:tune:
+	TUNE_HYPERPARAMS=1 python3.11  train/train_win_model.py
+
 train\:homerun\:tune:
 	TUNE_HYPERPARAMS=1 python3.11  train/train_homerun_model.py
 
