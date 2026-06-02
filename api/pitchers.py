@@ -227,7 +227,8 @@ def load_bullpen_data_from_snowflake(teams: list[str]) -> dict[str, dict]:
             JOIN {db}.{schema}.GAME_RESULTS gr ON p.game_pk = gr.game_pk
             WHERE p.gs = 0
                 AND p.game_date >= DATEADD(day, -90, CURRENT_DATE)
-                AND p.hr_per_bf_10 IS NOT NULL
+                AND rollsum_bfp_35 > 20
+                AND rollsum_bfp_10 > 0
                 AND CASE WHEN p.is_home_pitcher = 1 THEN gr.team_h ELSE gr.team_v END
                     IN ({team_list})
         )

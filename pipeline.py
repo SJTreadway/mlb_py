@@ -268,9 +268,10 @@ def filter_hr_by_edge(df):
 
     filtered = filtered[
         (filtered["hr_prob_numeric"] >= HR_PROB_THRESHOLD)
-        & (filtered["true_edge"] >= HR_EDGE_THRESHOLD)
+        & ~((filtered["FB%"] == "35.0%") & (filtered["P-HR/BF"] == "0.032"))
+        & (filtered["Odds"].notna())
     ]
-    return filtered.sort_values("true_edge", ascending=False)
+    return filtered.sort_values("hr_prob_numeric", ascending=False)
 
 
 def get_player_name_map(mlbam_ids):
@@ -503,11 +504,6 @@ def print_todays_homerun_preds(df):
     df = df[(df["Player"].notna()) & (df["Player"] != "")]
 
     df.to_csv(f"data/results/{RUN_DATE}_homerun_preds.csv", index=False)
-
-    # show all qualifying HR predictions (>= 19% HR prob)
-    # top_hr_df = df[df["hr_prob_numeric"] >= 0.19].sort_values(
-    #    "hr_prob_numeric", ascending=False
-    # )[cols]
 
     top_hr_df = filter_hr_by_edge(df)
 
