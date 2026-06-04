@@ -38,13 +38,14 @@ class TestPredictWinner:
     @patch('pickle.load')
     def test_returns_tuple(self, mock_pickle):
         """Test that function returns prediction and probability."""
+        from pipeline import HOME_VICTORY_FEAT_SET
         # Mock model
         mock_model = MagicMock()
         mock_model.predict.return_value = [1]
         mock_model.predict_proba.return_value = np.array([[0.3, 0.7]])
         mock_pickle.return_value = mock_model
         
-        X = pd.DataFrame({'feature': [1, 2, 3]})
+        X = pd.DataFrame({col: [1] for col in HOME_VICTORY_FEAT_SET})
         pred, prob = predict_winner(X)
         
         assert isinstance(pred, (list, np.ndarray))
@@ -54,12 +55,13 @@ class TestPredictWinner:
     @patch('pickle.load')
     def test_prediction_values(self, mock_pickle):
         """Test prediction values."""
+        from pipeline import HOME_VICTORY_FEAT_SET
         mock_model = MagicMock()
         mock_model.predict.return_value = np.array([1, 0])
         mock_model.predict_proba.return_value = np.array([[0.4, 0.6], [0.7, 0.3]])
         mock_pickle.return_value = mock_model
         
-        X = pd.DataFrame({'feature': [1, 2]})
+        X = pd.DataFrame({col: [1, 2] for col in HOME_VICTORY_FEAT_SET})
         pred, prob = predict_winner(X)
         
         # Probabilities should be between 0 and 1
@@ -73,18 +75,19 @@ class TestPredictRunsScored:
     @patch('pickle.load')
     def test_returns_probabilities(self, mock_pickle):
         """Test that function returns probability distribution."""
+        from pipeline import RUNS_SCORED_FEAT_SET
         mock_model = MagicMock()
-        # Return probability distribution for 20 possible run totals
+        # Binary classification: predict_proba returns (n_samples, 2)
         mock_model.predict_proba.return_value = np.array([
-            [0.1] * 20  # Uniform distribution
+            [0.3, 0.7]  # probability of class 1 = 0.7
         ])
         mock_pickle.return_value = mock_model
         
-        X = pd.DataFrame({'feature': [1, 2, 3]})
+        X = pd.DataFrame({col: [1] for col in RUNS_SCORED_FEAT_SET})
         probs = predict_runs_scored(X)
         
         assert isinstance(probs, np.ndarray)
-        assert probs.shape[1] == 20  # Should have 20 probability bins
+        assert probs.ndim == 1  # 1D array of class-1 probabilities
 
 
 class TestGetRunsScoredProb:
@@ -206,9 +209,9 @@ class TestPredictHomerunHitter:
         """Test that function returns probability array."""
         mock_model = MagicMock()
         mock_model.predict_proba.return_value = np.array([[0.9, 0.1], [0.8, 0.2]])
-        mock_pickle.return_value = {"model": mock_model}
+        mock_pickle.return_value = {"model": mock_model, "features": ["feature"]}
 
-        X = pd.DataFrame({"feature": [1, 2]})
+        X = pd.DataFrame({"feature": [1, 2], "matchup": ["RR", "RL"]})
         probs = predict_homerun_hitter(X)
 
         assert isinstance(probs, np.ndarray)

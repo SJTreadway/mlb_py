@@ -1,3 +1,4 @@
+import datetime
 import os
 import sys
 import pytest
@@ -8,37 +9,41 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from api.homerun import process_homerun_data
 
-
-DATES = [20260315, 20260320, 20260325, 20260330,
-         20260401, 20260405, 20260410, 20260415, 20260420,
-         20260425, 20260430, 20260501, 20260505, 20260510]
-GAME_DATE = 20260501
+GAME_DATE = 20260601
 
 
-def _make_batter_df(index_date=GAME_DATE):
-    n = len(DATES)
-    return pd.DataFrame(
-        {
-            "date": DATES,
-            "BARREL_30": [0.05] * n,
-            "EV_30": [90.0] * n,
-            "HARDHIT_30": [0.4] * n,
-            "SWSPOT_30": [0.35] * n,
-            "SLG_30": [0.45] * n,
-            "OBP_30": [0.35] * n,
-            "OBS_30": [0.80] * n,
-            "est_woba_30": [0.35] * n,
-            "est_slg_30": [0.45] * n,
-            "HR_per_PA_30": [0.04] * n,
-            "HR_per_PA_vs_R_30": [0.05] * n,
-            "HR_per_PA_vs_L_30": [0.03] * n,
-            "age": [28] * n,
-            "days_rest": [1] * n,
-            "is_home": [1] * n,
-            "stand": ["R"] * n,
-        },
-        index=DATES,
-    )
+def _make_batter_series():
+    """Return a pd.Series matching the Snowflake batter_data_dict format."""
+    return pd.Series({
+        "game_date": "2026-06-01",
+        "stand": "R",
+        "rollsum_ab_162": 50,
+        **{f"{stem}_{w}": 0.05 for w in [7, 14, 30, 75, 162, 350]
+           for stem in ["barrel", "hardhit", "swspot"]},
+        **{f"{stem}_{w}": 90.0 for w in [7, 14, 30, 75, 162, 350]
+           for stem in ["ev"]},
+        **{f"{stem}_{w}": 0.45 for w in [7, 14, 30, 75, 162, 350]
+           for stem in ["slg", "est_slg"]},
+        **{f"{stem}_{w}": 0.35 for w in [7, 14, 30, 75, 162, 350]
+           for stem in ["obp", "obs", "est_woba"]},
+        **{f"hr_per_pa_{w}": 0.04 for w in [7, 14, 30, 75, 162, 350]},
+        **{f"hr_per_pa_vs_r_{w}": 0.05 for w in [7, 14, 30, 75, 162, 350]},
+        **{f"hr_per_pa_vs_l_{w}": 0.03 for w in [7, 14, 30, 75, 162, 350]},
+        "age": 28,
+    })
+
+
+def _make_pitcher_series():
+    """Return a pd.Series matching the Snowflake pitcher_data_dict format."""
+    return pd.Series({
+        "hr_per_bf_10": 0.030,
+        "hr_per_bf_35": 0.025,
+        "hr_per_bf_75": 0.020,
+        "fb_perc_10": 0.40,
+        "fb_perc_35": 0.38,
+        "fb_perc_75": 0.35,
+        "gs": 1,
+    })
 
 
 class TestProcessHomerunData:
@@ -59,7 +64,7 @@ class TestProcessHomerunData:
                 "batter1_id_v": [201],
             }
         )
-        batter_data = {"101": _make_batter_df()}
+        batter_data = {"101": _make_batter_series()}
         pitcher_data = {}
 
         result = process_homerun_data(df, batter_data, pitcher_data)
@@ -82,7 +87,7 @@ class TestProcessHomerunData:
                 "batter1_id_v": [201],
             }
         )
-        batter_data = {"101": _make_batter_df()}
+        batter_data = {"101": _make_batter_series()}
         pitcher_data = {}
 
         result = process_homerun_data(df, batter_data, pitcher_data)
@@ -90,7 +95,7 @@ class TestProcessHomerunData:
             "date_dblhead", "b_id", "slot", "team", "opponent",
             "stand", "opp_throws", "park_hr_factor",
             "temp", "humidity", "wind_spd", "wind_out",
-            "BARREL_30", "EV_30", "HR_per_PA_30",
+            "barrel_30", "ev_30", "hr_per_pa_30",
         ]
         for col in expected_cols:
             assert col in result.columns, f"Missing column: {col}"
@@ -131,28 +136,14 @@ class TestProcessHomerunData:
                 "batter1_id_h": [101],
             }
         )
-        bdf = _make_batter_df()
-        bdf.loc[:, "is_home"] = 0
-        batter_data = {"101": bdf}
-        pitcher_data = {
-            "200": pd.DataFrame(
-                {
-                    "HR_per_BF_10": [0.03],
-                    "FB_perc_10": [0.40],
-                    "HR_per_BF_35": [0.025],
-                    "FB_perc_35": [0.38],
-                    "HR_per_BF_75": [0.02],
-                    "FB_perc_75": [0.35],
-                },
-                index=[GAME_DATE],
-            )
-        }
+        batter_data = {"101": _make_batter_series()}
+        pitcher_data = {"200": _make_pitcher_series()}
 
         result = process_homerun_data(df, batter_data, pitcher_data)
         assert not result.empty
         # Batter faces opposing pitcher (v for h team = sp_id_v = 200)
-        assert "opp_HR_per_BF_10" in result.columns
-        assert result["opp_HR_per_BF_10"].iloc[0] == 0.03
+        assert "opp_hr_per_bf_10" in result.columns
+        assert result["opp_hr_per_bf_10"].iloc[0] == 0.03
 
 
 if __name__ == "__main__":
