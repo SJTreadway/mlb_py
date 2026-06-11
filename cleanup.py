@@ -1,6 +1,8 @@
 import os
+import glob
 
 DIRS = ["data/daily"]
+HTML_PATTERNS = ["data/results/*.html"]
 
 
 def cleanup_directory():
@@ -14,6 +16,14 @@ def cleanup_directory():
                 except Exception as e:
                     print(f"Failed to delete {file_path}. Reason: {e}")
         print(f"✅ {directory} completed 🧹")
+
+    for pattern in HTML_PATTERNS:
+        for file_path in glob.glob(pattern):
+            try:
+                os.unlink(file_path)
+            except Exception as e:
+                print(f"Failed to delete {file_path}. Reason: {e}")
+    print(f"✅ data/results/*.html completed 🧹")
 
 
 if __name__ == "__main__":

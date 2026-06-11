@@ -28,6 +28,10 @@ log = logging.getLogger(__name__)
 from datetime import date, timedelta, datetime, timezone
 import pytz
 import pickle
+import webbrowser
+import pathlib
+
+from ui.dashboard import generate_html
 
 from api.teams import (
     generate_team_window_features,
@@ -50,8 +54,6 @@ from api.batters import process_batting_data
 from api.weather import process_weather_data
 from api.homerun import process_homerun_data
 
-import streamlit as st
-from ui.dashboard import display_dashboard
 
 from cleanup import cleanup_directory
 
@@ -62,7 +64,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 DISPLAY_EDGE_ONLY = 1
-EDGE_THRESHOLD = 4.0
+EDGE_THRESHOLD_H = 4.0
+EDGE_THRESHOLD_V = 7.0
 HR_PROB_THRESHOLD = 0.20  # model must believe in the guy
 HR_EDGE_THRESHOLD = 2.0  # at least 2pp of edge over implied
 
@@ -90,6 +93,7 @@ PITCHER_DICT_FILE = f"data/daily/{RUN_DATE}_pitcher_dict.pkl"
 BVP_DICT_FILE = f"data/daily/{RUN_DATE}_bvp_dict.pkl"
 HR_ODDS_CACHE_FILE = f"data/daily/{RUN_DATE}_hr_odds_cache.pkl"
 PREDS_FILE = f"data/results/{RUN_DATE}_home_victory_preds.csv"
+DASHBOARD_FILE = f"data/results/{RUN_DATE}_dashboard.html"
 
 # Set of features we will predict on
 RUNS_SCORED_FEAT_SET = [
@@ -251,9 +255,9 @@ def filter_games_by_edge(df):
     filtered_df["edge_v"] = filtered_df["edge_v"].str.replace("%", "").astype(float)
     filtered_df["prob"] = filtered_df["prob"].astype(float)
     filtered_df = filtered_df[
-        ((filtered_df["edge_h"] > EDGE_THRESHOLD) & (filtered_df["prob"] > 0.50))
+        ((filtered_df["edge_h"] > EDGE_THRESHOLD_H) & (filtered_df["prob"] > 0.50))
         | (
-            (filtered_df["edge_v"] > EDGE_THRESHOLD)
+            (filtered_df["edge_v"] > EDGE_THRESHOLD_V)
             & ((1 - filtered_df["prob"]) > 0.50)
         )
     ]
@@ -547,7 +551,6 @@ def print_todays_totals_preds(df):
     ]
 
 
-@st.cache_data(ttl=1800)  # 30 min cache
 def run_pipeline(run_date_str):
     log.info("--- TIME TO COOK 👨🏻‍🍳 ⚾️ 🚀 💰 ---")
     if REFRESH_DATA == 1:
@@ -572,6 +575,8 @@ def run_pipeline(run_date_str):
             pitcher_data_dict = pickle.load(f)
         with open(BVP_DICT_FILE, "rb") as f:
             bvp_dict = pickle.load(f)
+        pitcher_warnings = []
+        batter_warnings = []
 
     else:
         log.info("\nLoading Lineup Data")
@@ -583,12 +588,14 @@ def run_pipeline(run_date_str):
 
         # Add Pitching Data
         log.info("\nLoading Pitching Data")
-        lineup_w_pitching_df, pitcher_data_dict = process_pitching_data(df)
+        lineup_w_pitching_df, pitcher_data_dict, pitcher_warnings = (
+            process_pitching_data(df)
+        )
 
         # Add Batting Data
         log.info("\nLoading Batting Data")
-        lineup_w_pitching_batting_df, batter_data_dict, bvp_dict = process_batting_data(
-            lineup_w_pitching_df
+        lineup_w_pitching_batting_df, batter_data_dict, bvp_dict, batter_warnings = (
+            process_batting_data(lineup_w_pitching_df)
         )
 
         log.info(f"\nSaving Lineup Data to CSV")
@@ -739,14 +746,24 @@ def run_pipeline(run_date_str):
         combined.to_csv(PREDS_FILE, index=False)
     else:
         new_preds.to_csv(PREDS_FILE, index=False)
-    return hr_display_df, wins_display_df
+
+    pipeline_warnings = pitcher_warnings + batter_warnings
+
+    return hr_display_df, wins_display_df, pipeline_warnings
 
 
 def handler(event, context):
-    hr_display_df, wins_display_df = run_pipeline(str(RUN_DATE))
-    display_dashboard(
-        hr_df=hr_display_df, wins_df=wins_display_df, run_date=str(RUN_DATE)
+    hr_display_df, wins_display_df, pipeline_warnings = run_pipeline(str(RUN_DATE))
+
+    html = generate_html(
+        hr_df=hr_display_df,
+        wins_df=wins_display_df,
+        run_date=str(RUN_DATE),
+        warnings=pipeline_warnings,
     )
+    with open(DASHBOARD_FILE, "w") as f:
+        f.write(html)
+    webbrowser.open(pathlib.Path(DASHBOARD_FILE).resolve().as_uri())
     # post_to_X()
     return {}
 

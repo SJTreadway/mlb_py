@@ -27,7 +27,6 @@ import numpy as np
 import pandas as pd
 import requests
 import snowflake.connector
-import streamlit as st
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from dotenv import load_dotenv
@@ -504,17 +503,15 @@ def process_batting_data(
     # ── 3. pull latest rolling features from Snowflake ────────────────────
     batter_data_dict = load_batter_data_from_snowflake(batter_ids_list)
     missing = len(batter_ids_list) - len(batter_data_dict)
+    warnings = []
     if missing:
         missing_ids = [b for b in batter_ids_list if b not in batter_data_dict]
-        log.warning(
-            f"{missing} batters not found in Snowflake — position defaults will be used"
+        msg = (
+            f"{missing} batter(s) not found in Snowflake — position defaults used. "
+            f"{', '.join(list(resolve_names(missing_ids).values()))}"
         )
-        names = list(resolve_names(missing_ids).values())
-        st.warning(
-            f"⚠️ {missing} batter(s) not found in Snowflake — position defaults used. "
-            f"{', '.join(names)}",
-            icon=None,
-        )
+        log.warning(msg)
+        warnings.append(msg)
 
     # ── 4. pull BvP history for all batter-pitcher matchups ───────────────
     batter_pitcher_pairs: set[tuple[str, str]] = set()
@@ -538,4 +535,4 @@ def process_batting_data(
     # ── 6. aggregate to lineup-level averages ─────────────────────────────
     df = get_lineup_averages(df)
 
-    return df, batter_data_dict, bvp_dict
+    return df, batter_data_dict, bvp_dict, warnings

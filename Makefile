@@ -26,7 +26,7 @@ test-cov:
 
 # Run pipeline
 run:
-	REFRESH_DATA=0 python3.11 results_tracker.py && python3.11 -m streamlit run pipeline.py
+	REFRESH_DATA=0 python3.11 results_tracker.py && python3.11 pipeline.py
 
 run\:force:
 	REFRESH_DATA=1 python3.11 results_tracker.py && python3.11 -m streamlit run pipeline.py

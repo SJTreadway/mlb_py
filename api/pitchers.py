@@ -403,17 +403,15 @@ def process_pitching_data(
     # ── 2. pull starter features from Snowflake ───────────────────────────────
     starter_data_dict = load_starter_data_from_snowflake(all_starter_ids)
     missing = len(all_starter_ids) - len(starter_data_dict)
+    warnings = []
     if missing:
         missing_ids = [p for p in all_starter_ids if p not in starter_data_dict]
-        log.warning(
-            f"{missing} starters not found in Snowflake — using league-average defaults"
+        msg = (
+            f"{missing} starter(s) not found in Snowflake — league-average defaults used. "
+            f"{', '.join(list(resolve_names(missing_ids).values()))}"
         )
-        names = list(resolve_names(missing_ids).values())
-        st.warning(
-            f"⚠️ {missing} starter(s) not found in Snowflake — league-average defaults used. "
-            f"{', '.join(names)}",
-            icon=None,
-        )
+        log.warning(msg)
+        warnings.append(msg)
 
     # ── 3. assemble Strt_ columns ─────────────────────────────────────────────
     df = assemble_starter_features(df, starter_data_dict)
@@ -424,16 +422,14 @@ def process_pitching_data(
     missing_teams = len(teams) - len(bullpen_data_dict)
     if missing_teams:
         missing_team_list = [t for t in teams if t not in bullpen_data_dict]
-        log.warning(
-            f"{missing_teams} teams missing bullpen data — using league-average defaults"
+        msg = (
+            f"{missing_teams} team(s) missing bullpen data — league-average defaults used. "
+            f"Teams: {', '.join(missing_team_list)}"
         )
-        st.warning(
-            f"⚠️ {missing_teams} team(s) missing bullpen data — league-average defaults used. "
-            f"Teams: {', '.join(missing_team_list)}",
-            icon=None,
-        )
+        log.warning(msg)
+        warnings.append(msg)
 
     # ── 5. assemble Bpen_ columns ─────────────────────────────────────────────
     df = assemble_bullpen_features(df, bullpen_data_dict)
 
-    return df, starter_data_dict
+    return df, starter_data_dict, warnings

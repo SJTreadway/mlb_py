@@ -22,8 +22,6 @@ cryptography            # RSA key-pair auth for Snowflake
 # ── AWS ────────────────────────────────────────────────────────────────────────
 boto3                   # S3 model upload (production)
 
-# ── dashboard ──────────────────────────────────────────────────────────────────
-streamlit
 
 # ── config / utils ─────────────────────────────────────────────────────────────
 python-dotenv
