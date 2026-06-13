@@ -251,7 +251,7 @@ def print_summary() -> None:
         log.info("No matched results yet")
         return
 
-    tracked = df[df["pick_correct"].notna()]
+    tracked = df[df["pick_correct"].notna()].copy()
     n = len(tracked)
     correct = tracked["pick_correct"].sum()
     units = tracked["units_profit"].sum()
@@ -264,11 +264,11 @@ def print_summary() -> None:
     log.info(f"  ROI           : {units/n:.3f}U per game")
 
     if "edge" in tracked.columns:
-        log.info(f"\n  By edge bucket (model's pick side):")
-        tracked = tracked.copy()
         tracked["edge_val"] = pd.to_numeric(
             tracked["edge"].astype(str).str.replace("%", ""), errors="coerce"
         )
+
+        log.info(f"\n  By edge bucket (model's pick side):")
         for lo, hi in [(4, 8), (8, 15), (15, 100)]:
             bucket = tracked[(tracked["edge_val"] >= lo) & (tracked["edge_val"] < hi)]
             if len(bucket):
@@ -277,6 +277,33 @@ def print_summary() -> None:
                     f"({bucket['pick_correct'].mean():.1%}) | "
                     f"{bucket['units_profit'].sum():+.2f}U"
                 )
+
+    if "model_pick" in tracked.columns:
+        log.info(f"\n  By pick side (Home vs Visitor):")
+        for side, label in [("H", "Home"), ("V", "Visitor")]:
+            side_df = tracked[tracked["model_pick"] == side]
+            if len(side_df):
+                log.info(
+                    f"    {label:8s}: {side_df['pick_correct'].sum()}/{len(side_df)} "
+                    f"({side_df['pick_correct'].mean():.1%}) | "
+                    f"{side_df['units_profit'].sum():+.2f}U"
+                )
+
+        if "edge_val" in tracked.columns:
+            log.info(f"\n  By pick side x edge bucket:")
+            for side, label in [("H", "Home"), ("V", "Visitor")]:
+                side_df = tracked[tracked["model_pick"] == side]
+                for lo, hi in [(4, 8), (8, 15), (15, 100)]:
+                    bucket = side_df[
+                        (side_df["edge_val"] >= lo) & (side_df["edge_val"] < hi)
+                    ]
+                    if len(bucket):
+                        log.info(
+                            f"    {label:8s} {lo}-{hi}%: {bucket['pick_correct'].sum()}/{len(bucket)} "
+                            f"({bucket['pick_correct'].mean():.1%}) | "
+                            f"{bucket['units_profit'].sum():+.2f}U"
+                        )
+
     log.info(f"{'='*40}")
 
 
