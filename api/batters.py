@@ -237,8 +237,8 @@ def load_bvp_data_from_snowflake(
         SELECT
             BATTER,
             PITCHER,
-            BVP_PA_PRIOR + PA  AS total_pa,
-            BVP_HR_PRIOR + HR  AS total_hr
+            BVP_PA_PRIOR AS total_pa,
+            BVP_HR_PRIOR AS total_hr
         FROM (
             SELECT *,
                 ROW_NUMBER() OVER (
