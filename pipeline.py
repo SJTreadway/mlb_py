@@ -266,9 +266,11 @@ def filter_games_by_edge(df):
 
 def filter_hr_by_edge(df):
     filtered = df.copy()
+    """
     filtered["true_edge"] = (
         filtered["hr_prob_numeric"] - filtered["implied_numeric"]
     ) * 100
+    """
 
     filtered = filtered[
         (filtered["hr_prob_numeric"] >= HR_PROB_THRESHOLD)
@@ -280,7 +282,7 @@ def filter_hr_by_edge(df):
             & (filtered["opp_fb_perc_35"] == 0.35)
             & (filtered["opp_fb_perc_75"] == 0.35)
         )
-        & (filtered["Odds"].notna())
+        # & (filtered["Odds"].notna())
     ]
     return filtered.sort_values("hr_prob_numeric", ascending=False)
 
@@ -390,6 +392,7 @@ def print_todays_home_victory_preds(df):
 def print_todays_homerun_preds(df):
     df = df.copy()
 
+    """
     # add odds if available
     # get or load cached HR odds
     if os.path.exists(HR_ODDS_CACHE_FILE):
@@ -412,6 +415,7 @@ def print_todays_homerun_preds(df):
             ),
             axis=1,
         )
+    """
 
     df["Platoon"] = df.apply(
         lambda r: (
@@ -435,9 +439,9 @@ def print_todays_homerun_preds(df):
             "humidity": "Humidity",
             "hr_prob": "HR Prob",
             "player_name": "Player",
-            "american_odds": "Odds",
-            "implied_prob": "Implied",
-            "edge": "Edge",
+            # "american_odds": "Odds",
+            # "implied_prob": "Implied",
+            # "edge": "Edge",
             # "book": "Book",
         }
     )
@@ -457,7 +461,7 @@ def print_todays_homerun_preds(df):
         df["Wind Out"] = df["wind_out"].map(
             lambda x: f"{x:+.1f}" if pd.notna(x) else "N/A"
         )
-    df["implied_numeric"] = df["Implied"]  # save numeric before formatting
+    # df["implied_numeric"] = df["Implied"]  # save numeric before formatting
 
     # all % cols
     pct_cols = {
@@ -503,8 +507,8 @@ def print_todays_homerun_preds(df):
         "FB%",
         "P-HR/BF",
         "HR Prob",
-        "Odds",
-        "Edge",
+        # "Odds",
+        # "Edge",
         # "Book",
     ]
     cols = [c for c in cols if c in df.columns]
