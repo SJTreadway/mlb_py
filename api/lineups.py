@@ -55,6 +55,45 @@ def get_team_hitting_stats(team_id, year=None):
         return {}
 
 
+# ── Suspended Games Filter ─────────────────────────────────────────────────────────────────────
+
+SUSPENDED_RESUMED_STATES = {
+    "Suspended",
+    "Suspended: Rain",
+    "Suspended: Darkness",
+    "Suspended: Weather",
+    "Resumed",  # game continuing from a prior date
+    "Completed Early",  # often paired with a suspension that finished without resuming
+}
+
+
+def _is_carryover_suspended_game(game: dict, run_date: datetime.date) -> bool:
+    """Return True if this game is a suspended game resuming/continuing
+    from a previous day (i.e. NOT a fresh game for run_date)."""
+    status = game.get("status", {})
+    detailed_state = status.get("detailedState", "")
+
+    if detailed_state in SUSPENDED_RESUMED_STATES:
+        return True
+
+    # Some resumed games carry the original game date explicitly.
+    # If present and it doesn't match run_date, this game started earlier.
+    resume_date_str = (
+        game.get("resumeDate")
+        or game.get("resumeGameDate")
+        or game.get("resumedFromDate")
+    )
+    if resume_date_str:
+        try:
+            resume_date = datetime.datetime.fromisoformat(resume_date_str[:10]).date()
+            if resume_date != run_date:
+                return True
+        except (ValueError, TypeError):
+            pass
+
+    return False
+
+
 # ── Slate ─────────────────────────────────────────────────────────────────────
 
 
@@ -74,6 +113,8 @@ def get_games_slate(run_date):
     games = []
     for date_obj in resp.json().get("dates", []):
         for game in date_obj.get("games", []):
+            if _is_carryover_suspended_game(game, run_date):
+                continue
             home = game["teams"]["home"]
             away = game["teams"]["away"]
 
