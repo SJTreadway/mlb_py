@@ -45,9 +45,6 @@ from api.odds import (
     get_total_line,
     get_money_line_price,
     calculate_edge,
-    get_hr_prop_odds,
-    get_best_hr_odds,
-    match_hr_odds,
 )
 from api.pitchers import process_pitching_data
 from api.batters import process_batting_data
@@ -266,11 +263,6 @@ def filter_games_by_edge(df):
 
 def filter_hr_by_edge(df):
     filtered = df.copy()
-    """
-    filtered["true_edge"] = (
-        filtered["hr_prob_numeric"] - filtered["implied_numeric"]
-    ) * 100
-    """
 
     filtered = filtered[
         (filtered["hr_prob_numeric"] >= HR_PROB_THRESHOLD)
@@ -282,7 +274,6 @@ def filter_hr_by_edge(df):
             & (filtered["opp_fb_perc_35"] == 0.35)
             & (filtered["opp_fb_perc_75"] == 0.35)
         )
-        # & (filtered["Odds"].notna())
     ]
     return filtered.sort_values("hr_prob_numeric", ascending=False)
 
@@ -392,31 +383,6 @@ def print_todays_home_victory_preds(df):
 def print_todays_homerun_preds(df):
     df = df.copy()
 
-    """
-    # add odds if available
-    # get or load cached HR odds
-    if os.path.exists(HR_ODDS_CACHE_FILE):
-        with open(HR_ODDS_CACHE_FILE, "rb") as f:
-            best_odds = pickle.load(f)
-    else:
-        odds_df = get_hr_prop_odds()
-        best_odds = get_best_hr_odds(odds_df)
-        with open(HR_ODDS_CACHE_FILE, "wb") as f:
-            pickle.dump(best_odds, f)
-
-    df = match_hr_odds(df, best_odds)
-
-    if "american_odds" in df.columns:
-        df["edge"] = df.apply(
-            lambda r: (
-                calculate_edge(r["hr_prob"], r["american_odds"])
-                if pd.notna(r.get("american_odds"))
-                else None
-            ),
-            axis=1,
-        )
-    """
-
     df["Platoon"] = df.apply(
         lambda r: (
             r.get("hr_per_pa_vs_r_162")
@@ -439,10 +405,6 @@ def print_todays_homerun_preds(df):
             "humidity": "Humidity",
             "hr_prob": "HR Prob",
             "player_name": "Player",
-            # "american_odds": "Odds",
-            # "implied_prob": "Implied",
-            # "edge": "Edge",
-            # "book": "Book",
         }
     )
 
@@ -461,7 +423,6 @@ def print_todays_homerun_preds(df):
         df["Wind Out"] = df["wind_out"].map(
             lambda x: f"{x:+.1f}" if pd.notna(x) else "N/A"
         )
-    # df["implied_numeric"] = df["Implied"]  # save numeric before formatting
 
     # all % cols
     pct_cols = {
@@ -507,9 +468,6 @@ def print_todays_homerun_preds(df):
         "FB%",
         "P-HR/BF",
         "HR Prob",
-        # "Odds",
-        # "Edge",
-        # "Book",
     ]
     cols = [c for c in cols if c in df.columns]
     df["hr_prob_numeric"] = df["HR Prob"]  # save numeric before formatting

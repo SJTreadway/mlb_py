@@ -2,14 +2,12 @@ import json
 import os
 import sys
 import pytest
-import pandas as pd
-import numpy as np
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-os.environ['ODDS_API_KEY'] = 'test_api_key'
+os.environ["ODDS_API_KEY"] = "test_api_key"
 
 from api.odds import (
     get_over_odds,
@@ -24,85 +22,82 @@ from api.odds import (
     prob_to_line,
     get_stripped_team_val,
     extract_total_odds,
-    normalize_name,
-    match_hr_odds,
-    get_best_hr_odds,
 )
 
 
 class TestCalculateEdge:
     """Tests for edge calculation."""
-    
+
     def test_positive_edge(self):
         """Test calculation with positive edge."""
         # 60% probability, +150 odds
         result = calculate_edge(0.60, 150)
         # Result is a string like "10.0%"
         assert isinstance(result, str)
-        assert '%' in result
+        assert "%" in result
         # Extract numeric value and check it's positive
-        edge_val = float(result.replace('%', ''))
+        edge_val = float(result.replace("%", ""))
         assert edge_val > 0
-    
+
     def test_negative_edge(self):
         """Test calculation with negative edge."""
         # 40% probability, -200 odds
         result = calculate_edge(0.40, -200)
         # Result is a string like "-10.0%"
         assert isinstance(result, str)
-        assert '%' in result
-        edge_val = float(result.replace('%', ''))
+        assert "%" in result
+        edge_val = float(result.replace("%", ""))
         assert edge_val < 0
-    
+
     def test_zero_edge(self):
         """Test calculation with fair odds."""
         # 50% probability, +100 odds
         result = calculate_edge(0.50, 100)
         assert isinstance(result, str)
-        edge_val = float(result.replace('%', ''))
+        edge_val = float(result.replace("%", ""))
         assert abs(edge_val) < 0.01  # Should be approximately 0
-    
+
     def test_negative_odds(self):
         """Test with negative odds (favorite)."""
         result = calculate_edge(0.70, -150)
         assert isinstance(result, str)
-        assert '%' in result
-    
+        assert "%" in result
+
     def test_invalid_probability(self):
         """Test with invalid probability values - function handles gracefully."""
         # Function doesn't raise, it calculates even with invalid probability
         result = calculate_edge(1.5, 100)
         assert isinstance(result, str)
-    
+
     def test_none_values(self):
         """Test with None values."""
         result = calculate_edge(None, 100)
         assert result is None
-        
+
         result = calculate_edge(0.5, None)
         assert result is None
 
 
 class TestLineToProb:
     """Tests for line to probability conversion."""
-    
+
     def test_positive_line(self):
         """Test with positive line."""
         result = line_to_prob(150)
         assert result > 0
         assert result < 0.5
-    
+
     def test_negative_line(self):
         """Test with negative line."""
         result = line_to_prob(-150)
         assert result > 0.5
         assert result < 1
-    
+
     def test_even_line(self):
         """Test with even money line."""
         result = line_to_prob(100)
         assert abs(result - 0.5) < 0.01
-    
+
     def test_none_value(self):
         """Test with None value."""
         result = line_to_prob(None)
@@ -111,22 +106,22 @@ class TestLineToProb:
 
 class TestLineToBet:
     """Tests for line to bet calculation."""
-    
+
     def test_returns_integer(self):
         """Test that function returns an integer."""
         result = line_to_bet(0.55)
         assert isinstance(result, int)
-    
+
     def test_positive_probability(self):
         """Test with positive probability."""
         result = line_to_bet(0.60)
         assert result < 0  # Favorite should have negative odds
-    
+
     def test_negative_probability(self):
         """Test with low probability."""
         result = line_to_bet(0.40)
         assert result > 0  # Underdog should have positive odds
-    
+
     def test_fifty_percent(self):
         """Test with 50% probability."""
         result = line_to_bet(0.50)
@@ -135,65 +130,57 @@ class TestLineToBet:
 
 class TestGetOverOdds:
     """Tests for over odds retrieval."""
-    
-    @patch('api.odds.get_odds_results')
+
+    @patch("api.odds.get_odds_results")
     def test_returns_value(self, mock_get_results):
         """Test that function returns a value."""
-        mock_get_results.return_value = {
-            'Yankees': {'over_under_price_o': -110}
-        }
-        
-        result = get_over_odds('New York Yankees')
+        mock_get_results.return_value = {"Yankees": {"over_under_price_o": -110}}
+
+        result = get_over_odds("New York Yankees")
         assert result == -110
-    
-    @patch('api.odds.get_odds_results')
+
+    @patch("api.odds.get_odds_results")
     def test_returns_none_on_error(self, mock_get_results):
         """Test that function returns None when team not found."""
         mock_get_results.return_value = {}
-        
-        result = get_over_odds('New York Yankees')
+
+        result = get_over_odds("New York Yankees")
         assert result is None
 
 
 class TestGetUnderOdds:
     """Tests for under odds retrieval."""
-    
-    @patch('api.odds.get_odds_results')
+
+    @patch("api.odds.get_odds_results")
     def test_returns_value(self, mock_get_results):
         """Test that function returns a value."""
-        mock_get_results.return_value = {
-            'Yankees': {'over_under_price_u': -110}
-        }
-        
-        result = get_under_odds('New York Yankees')
+        mock_get_results.return_value = {"Yankees": {"over_under_price_u": -110}}
+
+        result = get_under_odds("New York Yankees")
         assert result == -110
 
 
 class TestGetTotalLine:
     """Tests for total line retrieval."""
-    
-    @patch('api.odds.get_odds_results')
+
+    @patch("api.odds.get_odds_results")
     def test_returns_value(self, mock_get_results):
         """Test that function returns a value."""
-        mock_get_results.return_value = {
-            'Yankees': {'over_under_line': 8.5}
-        }
-        
-        result = get_total_line('New York Yankees')
+        mock_get_results.return_value = {"Yankees": {"over_under_line": 8.5}}
+
+        result = get_total_line("New York Yankees")
         assert result == 8.5
 
 
 class TestGetMoneyLinePrice:
     """Tests for money line price retrieval."""
-    
-    @patch('api.odds.get_odds_results')
+
+    @patch("api.odds.get_odds_results")
     def test_returns_value(self, mock_get_results):
         """Test that function returns a value."""
-        mock_get_results.return_value = {
-            'Yankees': {'moneyline_price': -150}
-        }
-        
-        result = get_money_line_price('New York Yankees')
+        mock_get_results.return_value = {"Yankees": {"moneyline_price": -150}}
+
+        result = get_money_line_price("New York Yankees")
         assert result == -150
 
 
@@ -274,40 +261,46 @@ class TestExtractTotalOdds:
 
     def test_extracts_home_and_away(self):
         """Test extraction of both home and away teams."""
-        data = json.dumps([
-            {
-                "home_team": "New York Yankees",
-                "away_team": "Boston Red Sox",
-                "commence_time": "2024-06-01T18:00:00Z",
-                "bookmakers": [
-                    {
-                        "key": "fanduel",
-                        "markets": [
-                            {
-                                "key": "totals",
-                                "outcomes": [
-                                    {"name": "Over", "point": 8.5, "price": -110},
-                                    {"name": "Under", "price": -110},
-                                ],
-                            },
-                            {
-                                "key": "spreads",
-                                "outcomes": [
-                                    {"name": "New York Yankees", "point": -1.5, "price": +150},
-                                ],
-                            },
-                            {
-                                "key": "h2h",
-                                "outcomes": [
-                                    {"name": "New York Yankees", "price": -150},
-                                    {"name": "Boston Red Sox", "price": +130},
-                                ],
-                            },
-                        ],
-                    }
-                ],
-            }
-        ])
+        data = json.dumps(
+            [
+                {
+                    "home_team": "New York Yankees",
+                    "away_team": "Boston Red Sox",
+                    "commence_time": "2024-06-01T18:00:00Z",
+                    "bookmakers": [
+                        {
+                            "key": "fanduel",
+                            "markets": [
+                                {
+                                    "key": "totals",
+                                    "outcomes": [
+                                        {"name": "Over", "point": 8.5, "price": -110},
+                                        {"name": "Under", "price": -110},
+                                    ],
+                                },
+                                {
+                                    "key": "spreads",
+                                    "outcomes": [
+                                        {
+                                            "name": "New York Yankees",
+                                            "point": -1.5,
+                                            "price": +150,
+                                        },
+                                    ],
+                                },
+                                {
+                                    "key": "h2h",
+                                    "outcomes": [
+                                        {"name": "New York Yankees", "price": -150},
+                                        {"name": "Boston Red Sox", "price": +130},
+                                    ],
+                                },
+                            ],
+                        }
+                    ],
+                }
+            ]
+        )
         result = extract_total_odds(data)
         assert "Yankees" in result
         assert "Red Sox" in result
@@ -319,38 +312,44 @@ class TestExtractTotalOdds:
 
     def test_no_bookmakers(self):
         """Test game with no bookmakers."""
-        data = json.dumps([
-            {
-                "home_team": "Los Angeles Dodgers",
-                "away_team": "San Francisco Giants",
-                "commence_time": "2024-06-01T20:00:00Z",
-                "bookmakers": [],
-            }
-        ])
+        data = json.dumps(
+            [
+                {
+                    "home_team": "Los Angeles Dodgers",
+                    "away_team": "San Francisco Giants",
+                    "commence_time": "2024-06-01T20:00:00Z",
+                    "bookmakers": [],
+                }
+            ]
+        )
         result = extract_total_odds(data)
         assert "Dodgers" in result
         assert result["Dodgers"]["over_under_line"] is None
 
     def test_only_fanduel_is_used(self):
         """Test only FanDuel bookmaker is considered."""
-        data = json.dumps([
-            {
-                "home_team": "Chicago Cubs",
-                "away_team": "St. Louis Cardinals",
-                "commence_time": "2024-06-01T18:00:00Z",
-                "bookmakers": [
-                    {
-                        "key": "draftkings",
-                        "markets": [
-                            {
-                                "key": "totals",
-                                "outcomes": [{"name": "Over", "point": 7.5, "price": -105}],
-                            }
-                        ],
-                    }
-                ],
-            }
-        ])
+        data = json.dumps(
+            [
+                {
+                    "home_team": "Chicago Cubs",
+                    "away_team": "St. Louis Cardinals",
+                    "commence_time": "2024-06-01T18:00:00Z",
+                    "bookmakers": [
+                        {
+                            "key": "draftkings",
+                            "markets": [
+                                {
+                                    "key": "totals",
+                                    "outcomes": [
+                                        {"name": "Over", "point": 7.5, "price": -105}
+                                    ],
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ]
+        )
         result = extract_total_odds(data)
         assert result["Cubs"]["over_under_line"] is None
 
@@ -360,128 +359,37 @@ class TestExtractTotalOdds:
         assert result == {}
 
 
-class TestNormalizeName:
-    """Tests for player name normalization."""
-
-    def test_lowercase(self):
-        """Test names are lowercased."""
-        assert normalize_name("Aaron Judge") == "aaron judge"
-
-    def test_strips_periods(self):
-        """Test periods are removed."""
-        assert normalize_name("Mike Trout Jr.") == "mike trout jr"
-
-    def test_strips_apostrophes(self):
-        """Test apostrophes are removed."""
-        assert normalize_name("D'arnaud") == "darnaud"
-
-    def test_replaces_hyphens(self):
-        """Test hyphens are replaced with spaces."""
-        assert normalize_name("Jose Ramirez Jr.") == "jose ramirez jr"
-
-
-class TestMatchHrOdds:
-    """Tests for matching HR odds to predictions."""
-
-    def test_no_odds_dataframe(self):
-        """Test with empty odds DataFrame returns pred_df unchanged."""
-        pred_df = pd.DataFrame({"player_name": ["Aaron Judge"]})
-        odds_df = pd.DataFrame()
-        result = match_hr_odds(pred_df, odds_df)
-        assert "american_odds" not in result.columns
-
-    def test_matches_by_normalized_name(self):
-        """Test matching by normalized player name."""
-        pred_df = pd.DataFrame({"player_name": ["Aaron Judge"]})
-        odds_df = pd.DataFrame({
-            "player_name": ["AARON JUDGE"],
-            "american_odds": [150],
-            "implied_prob": [0.4],
-            "book": ["fanduel"],
-        })
-        result = match_hr_odds(pred_df, odds_df)
-        assert result["american_odds"].iloc[0] == 150
-
-    def test_no_match_returns_nan(self):
-        """Test non-matching name returns NaN in odds columns."""
-        pred_df = pd.DataFrame({"player_name": ["Shohei Ohtani"]})
-        odds_df = pd.DataFrame({
-            "player_name": ["Aaron Judge"],
-            "american_odds": [150],
-            "implied_prob": [0.4],
-            "book": ["fanduel"],
-        })
-        result = match_hr_odds(pred_df, odds_df)
-        assert pd.isna(result["american_odds"].iloc[0])
-
-
-class TestGetBestHrOdds:
-    """Tests for best HR odds selection."""
-
-    def test_empty_dataframe(self):
-        """Test empty DataFrame returns empty DataFrame."""
-        result = get_best_hr_odds(pd.DataFrame())
-        assert result.empty
-
-    def test_prefers_fanduel(self):
-        """Test FanDuel odds are preferred."""
-        odds_df = pd.DataFrame({
-            "player_name": ["Aaron Judge", "Aaron Judge"],
-            "book": ["draftkings", "fanduel"],
-            "american_odds": [200, 150],
-        })
-        result = get_best_hr_odds(odds_df)
-        assert "fanduel" in result["book"].values
-
-    def test_fallback_when_no_fanduel(self):
-        """Test fallback to all books when FanDuel not available."""
-        odds_df = pd.DataFrame({
-            "player_name": ["Aaron Judge", "Shohei Ohtani"],
-            "book": ["draftkings", "draftkings"],
-            "american_odds": [200, 300],
-        })
-        result = get_best_hr_odds(odds_df)
-        assert "implied_prob" in result.columns
-        assert len(result) == 2
-
-
 class TestGetSpreadLine:
     """Tests for spread line retrieval."""
 
-    @patch('api.odds.get_odds_results')
+    @patch("api.odds.get_odds_results")
     def test_returns_value(self, mock_get_results):
         """Test that function returns a value."""
-        mock_get_results.return_value = {
-            'Yankees': {'spread_line': -1.5}
-        }
+        mock_get_results.return_value = {"Yankees": {"spread_line": -1.5}}
 
-        result = get_spread_line('New York Yankees')
+        result = get_spread_line("New York Yankees")
         assert result == -1.5
 
-    @patch('api.odds.get_odds_results')
+    @patch("api.odds.get_odds_results")
     def test_raises_on_missing_key(self, mock_get_results):
         """Test that function raises KeyError when spread not found."""
-        mock_get_results.return_value = {
-            'Yankees': {'over_under_line': 8.5}
-        }
+        mock_get_results.return_value = {"Yankees": {"over_under_line": 8.5}}
 
         with pytest.raises(KeyError):
-            get_spread_line('New York Yankees')
+            get_spread_line("New York Yankees")
 
 
 class TestGetSpreadOdds:
     """Tests for spread odds retrieval."""
 
-    @patch('api.odds.get_odds_results')
+    @patch("api.odds.get_odds_results")
     def test_returns_value(self, mock_get_results):
         """Test that function returns a value."""
-        mock_get_results.return_value = {
-            'Yankees': {'spread_price': -110}
-        }
+        mock_get_results.return_value = {"Yankees": {"spread_price": -110}}
 
-        result = get_spread_odds('New York Yankees')
+        result = get_spread_odds("New York Yankees")
         assert result == -110
 
 
-if __name__ == '__main__':
-    pytest.main([__file__, '-v'])
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

@@ -304,7 +304,7 @@ def _format_date(val: str) -> str:
 
 def _build_table(df: pd.DataFrame, colored_cols: dict | None = None) -> str:
     colored_cols = colored_cols or {}
-    HIDDEN_COLS = {"Temp", "Humidity", "Odds", "Edge"}
+    HIDDEN_COLS = {"Temp", "Humidity"}
     visible_cols = [c for c in df.columns if c not in HIDDEN_COLS]
 
     rows_html = ""
