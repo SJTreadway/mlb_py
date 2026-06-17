@@ -17,6 +17,7 @@ Makefile:
 import logging
 import os
 import sys
+import time
 from datetime import date, datetime
 
 import pandas as pd
@@ -77,14 +78,34 @@ def _calc_units(prob: float, ml: float | None, won: bool) -> float | None:
     return -1.0
 
 
-def fetch_results(run_date: str) -> list[dict]:
+def fetch_results(
+    run_date: str, max_retries: int = 3, backoff_base: int = 2
+) -> list[dict]:
     """Pull final game scores from MLB Stats API for a given date."""
-    resp = requests.get(
-        f"{MLB_API}/schedule",
-        params={"sportId": 1, "date": run_date, "hydrate": "team,linescore"},
-        timeout=15,
-    )
-    resp.raise_for_status()
+    params = {"sportId": 1, "date": run_date, "hydrate": "team,linescore"}
+
+    resp = None
+    last_exc = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            resp = requests.get(f"{MLB_API}/schedule", params=params, timeout=15)
+            resp.raise_for_status()
+            break
+        except (
+            requests.exceptions.ReadTimeout,
+            requests.exceptions.ConnectionError,
+        ) as e:
+            last_exc = e
+            if attempt == max_retries:
+                logging.error(
+                    f"fetch_results failed after {max_retries} attempts for {run_date}: {e}"
+                )
+                raise
+            wait = backoff_base**attempt
+            logging.warning(
+                f"fetch_results attempt {attempt}/{max_retries} failed: {e}. Retrying in {wait}s..."
+            )
+            time.sleep(wait)
 
     rows = []
     for date_obj in resp.json().get("dates", []):
