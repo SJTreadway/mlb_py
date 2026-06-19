@@ -85,7 +85,7 @@ def _is_carryover_suspended_game(game: dict, run_date: datetime.date) -> bool:
     )
     if resume_date_str:
         try:
-            resume_date = datetime.datetime.fromisoformat(resume_date_str[:10]).date()
+            resume_date = datetime.fromisoformat(resume_date_str[:10]).date()
             if resume_date != run_date:
                 return True
         except (ValueError, TypeError):
