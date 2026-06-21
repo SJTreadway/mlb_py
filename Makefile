@@ -24,16 +24,22 @@ install-test:
 test-cov:
 	python3.11 -m pytest tests/ --cov=. --cov-report=term-missing
 
-# Run pipeline
+# Run only passing tests (useful after fixes)
+test-failed:
+	python3.11 -m pytest tests/ --lf
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Pipeline
+#   prob/picks/edges are produced by the simulator (pipeline.py's primary
+#   model); xgb_prob is also computed and saved alongside for visibility
+#   only — results_tracker.py always scores `prob`, regardless of which
+#   model produced it.
+# ──────────────────────────────────────────────────────────────────────────────
 run:
 	REFRESH_DATA=0 python3.11 results_tracker.py && python3.11 pipeline.py
 
 run\:force:
 	REFRESH_DATA=1 python3.11 results_tracker.py && python3.11 pipeline.py
-
-# Run only passing tests (useful after fixes)
-test-failed:
-	python3.11 -m pytest tests/ --lf
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Single-Model Training
@@ -93,6 +99,7 @@ ensemble\:homerun\:all:
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Model Results Tracking
+#   Scores `prob` (the simulator's output) against actual outcomes.
 # ──────────────────────────────────────────────────────────────────────────────
 results:
 	python3.11 results_tracker.py $(DATE)
@@ -103,6 +110,7 @@ results\:today:
 results\:summary:
 	python3.11 -c "from results_tracker import print_summary; print_summary()"
 
+# HR model results
 results\:hr:
 	python3.11 -c "from hr_results_tracker import update_hr_results; update_hr_results('$(DATE)')"
 
@@ -146,18 +154,27 @@ clean:
 # Help
 help:
 	@echo "Available commands:"
+	@echo ""
+	@echo "  Pipeline:"
+	@echo "  make run                        - Run the pipeline (simulator-driven picks)"
+	@echo "  make run:force                  - Run the pipeline with REFRESH_DATA=1"
+	@echo ""
+	@echo "  Testing:"
 	@echo "  make test                       - Run all tests"
 	@echo "  make test-verbose               - Run tests with verbose output"
 	@echo "  make test-file FILE=name        - Run specific test file"
 	@echo "  make test-pattern PATTERN=key   - Run tests matching pattern"
 	@echo "  make test-cov                   - Run tests with coverage report"
-	@echo "  make run                        - Run the pipeline"
+	@echo "  make test-failed                - Re-run only previously failed tests"
+	@echo "  make install-test               - Install pytest"
 	@echo ""
 	@echo "  Single-model training:"
 	@echo "  make train:win                  - Train the win model"
 	@echo "  make train:homerun              - Train the HR model"
 	@echo "  make train:win:tune             - Train win model w/ Optuna tuning"
 	@echo "  make train:homerun:tune         - Train HR model w/ Optuna tuning"
+	@echo "  make dryrun:win                 - Run win training script without training"
+	@echo "  make dryrun:homerun             - Run HR training script without training"
 	@echo ""
 	@echo "  Ensemble training & stacking:"
 	@echo "  make ensemble:win               - Train win-model fleet"
@@ -168,4 +185,19 @@ help:
 	@echo "  make ensemble:win:all           - Train win fleet + stack in one go"
 	@echo "  make ensemble:homerun:all       - Train HR fleet + stack in one go"
 	@echo ""
+	@echo "  Results tracking:"
+	@echo "  make results DATE=...           - Track win results for a date"
+	@echo "  make results:today              - Track win results for today"
+	@echo "  make results:summary            - Print win tracking summary"
+	@echo "  make results:hr DATE=...        - Track HR results for a date"
+	@echo "  make results:hr:today           - Track HR results for today"
+	@echo "  make results:hr:summary         - Print HR tracking summary"
+	@echo ""
+	@echo "  Backups:"
+	@echo "  make backup                     - Backup training cache + HR model"
+	@echo "  make backup:cache               - Backup training data CSV"
+	@echo "  make backup:model               - Backup HR model file"
+	@echo "  make backup:ensemble            - Backup ensemble + strategy artifacts"
+	@echo ""
+	@echo "  make backfill:weather           - Backfill weather data cache"
 	@echo "  make clean                      - Clean daily files"

@@ -290,6 +290,30 @@ def _prob_color(val_str: str) -> str:
         return "neutral"
 
 
+def _win_prob_color(val_str: str) -> str:
+    """Color a WIN probability column (e.g. '0.616', from Prob Win (H) /
+    XGB Prob (H) / Sim Prob (H)) — different scale than _prob_color, which
+    is tuned for HR's much lower percent-string baseline. >=60% reads as a
+    confident home favorite (green), <40% as a confident home underdog
+    (red), so scanning the three win-prob columns side by side shows at a
+    glance whether XGBoost and the simulator agree on which team to favor.
+    """
+    if not val_str or val_str == "N/A":
+        return "neutral"
+    try:
+        val = float(val_str)
+        if val >= 0.60:
+            return "strong-pos"
+        elif val >= 0.50:
+            return "pos"
+        elif val >= 0.40:
+            return "neutral"
+        else:
+            return "neg"
+    except Exception:
+        return "neutral"
+
+
 # ── table builder ──────────────────────────────────────────────────────────────
 
 
@@ -385,6 +409,10 @@ def generate_html(
     wins_colored = {
         "Edge (H)": _edge_color,
         "Edge (V)": _edge_color,
+        "XGB Edge (H)": _edge_color,
+        "XGB Edge (V)": _edge_color,
+        "Sim Prob (H)": _win_prob_color,
+        "XGB Prob (H)": _win_prob_color,
     }
     wins_section = (
         _build_table(wins_df, wins_colored)

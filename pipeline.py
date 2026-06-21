@@ -53,12 +53,7 @@ from api.homerun import process_homerun_data
 
 
 from cleanup import cleanup_directory
-from ensemble_inference import predict_winner_ensemble
-from simulator_inference import (
-    predict_game,
-    predict_winner_simulator,
-    get_hr_probs_by_batter,
-)
+from simulator_inference import predict_game
 
 import tweepy
 
@@ -98,24 +93,11 @@ HR_ODDS_CACHE_FILE = f"data/daily/{RUN_DATE}_hr_odds_cache.pkl"
 PREDS_FILE = f"data/results/{RUN_DATE}_home_victory_preds.csv"
 DASHBOARD_FILE = f"data/results/{RUN_DATE}_dashboard.html"
 
-# Win ensemble (set USE_WIN_ENSEMBLE=1 to predict with the stacked fleet
-# instead of the single XGBoost model). Mutually exclusive with
-# USE_WIN_SIMULATOR — don't set both at once.
-USE_WIN_ENSEMBLE = int(os.environ.get("USE_WIN_ENSEMBLE", 0))
-WIN_ENSEMBLE_STRATEGY_FILE = "models/best_ensemble_strategy_win_2026v1.pkl"
-WIN_ENSEMBLE_FLEET_FILE = "models/ensemble_win_2026v1.pkl"
-
-# Win simulator (set USE_WIN_SIMULATOR=1 to predict win probability with the
-# Markov simulator instead of XGBoost / the ensemble). Mutually exclusive
-# with USE_WIN_ENSEMBLE — don't set both at once.
-USE_WIN_SIMULATOR = int(os.environ.get("USE_WIN_SIMULATOR", 0))
+# Simulator is now the PRIMARY win model — prob/picks/edge all come from it.
+# XGBoost still runs every time too (cheap — one predict_proba call, not a
+# simulation) so its number is visible for comparison via results:sim, but
+# results_tracker.py only ever scores the simulator's prob now.
 SIMULATOR_N_SIMS = int(os.environ.get("SIMULATOR_N_SIMS", 30000))
-
-if USE_WIN_ENSEMBLE and USE_WIN_SIMULATOR:
-    raise SystemExit(
-        "USE_WIN_ENSEMBLE and USE_WIN_SIMULATOR are mutually exclusive — "
-        "set at most one of them to 1."
-    )
 
 # Set of features we will predict on
 RUNS_SCORED_FEAT_SET = [
@@ -343,17 +325,24 @@ def print_todays_home_victory_preds(df):
             "starting_pitcher_name_h": "Probable Starter (H)",
             "starting_pitcher_name_v": "Probable Starter (V)",
             "moneyline_h": "ML (H)",
-            "prob": "Prob Win (H)",
+            "prob": "Sim Prob (H)",
+            "xgb_prob": "XGB Prob (H)",
             "edge_h": "Edge (H)",
+            "xgb_edge_h": "XGB Edge (H)",
             "moneyline_v": "ML (V)",
             "edge_v": "Edge (V)",
+            "xgb_edge_v": "XGB Edge (V)",
         }
     )
 
     filtered_df["Time"] = filtered_df["Time"].apply(format_game_time)
     filtered_df.sort_values("Date", ascending=True, inplace=True)
-    if "Prob Win (H)" in filtered_df.columns:
-        filtered_df["Prob Win (H)"] = filtered_df["Prob Win (H)"].map(
+    if "Sim Prob (H)" in filtered_df.columns:
+        filtered_df["Sim Prob (H)"] = filtered_df["Sim Prob (H)"].map(
+            lambda x: f"{x:.3f}" if pd.notna(x) else "N/A"
+        )
+    if "XGB Prob (H)" in filtered_df.columns:
+        filtered_df["XGB Prob (H)"] = filtered_df["XGB Prob (H)"].map(
             lambda x: f"{x:.3f}" if pd.notna(x) else "N/A"
         )
 
@@ -386,9 +375,12 @@ def print_todays_home_victory_preds(df):
         "Probable Starter (H)",
         "ML (H)",
         "Edge (H)",
-        "Prob Win (H)",
+        "XGB Edge (H)",
+        "Sim Prob (H)",
+        "XGB Prob (H)",
         "ML (V)",
         "Edge (V)",
+        "XGB Edge (V)",
     ]
 
     # filter out games without confirmed lineups on both sides
@@ -638,66 +630,66 @@ def run_pipeline(run_date_str):
     )
 
     log.info(f"\nMaking Predictions")
-    # Cache of full predict_game() summaries, keyed by (date_dblhead, team_h,
-    # team_v) — NOT game_pk, which does not survive the upstream pipeline
-    # transforms (confirmed empirically: game_row.get("game_pk") returns
-    # None at this point even though lineups.py's raw output includes it).
-    # (date_dblhead, team_h, team_v) is the same game-identity tuple already
-    # used elsewhere in this file (see df_runs.drop_duplicates at line ~611),
-    # so it's confirmed present and reliable here.
+
+    # XGBoost — always runs, kept for side-by-side comparison via
+    # results:sim, no longer the model results_tracker.py scores.
+    win_model_df = assemble_win_model_features(lineup_w_pitching_batting_team_df.copy())
+    xgb_pred, xgb_prob = predict_winner(win_model_df)
+    lineup_w_pitching_batting_team_weather_df["xgb_prob"] = xgb_prob
+
+    # Simulator — always runs, this is the model that drives prob/picks/edge
+    # and the one results_tracker.py scores going forward.
+    # Cache of full predict_game() summaries, keyed by (date_dblhead,
+    # team_h, team_v) — NOT game_pk, which does not survive the upstream
+    # pipeline transforms (confirmed empirically: game_row.get("game_pk")
+    # returns None at this point). Reused by the HR block below so the
+    # simulator only runs once per game, not twice.
     sim_summaries_by_game_key = {}
 
     def _game_key(row):
         return (row.get("date_dblhead"), row.get("team_h"), row.get("team_v"))
 
-    if USE_WIN_SIMULATOR:
-        log.info(f"  Using win simulator (n_sims={SIMULATOR_N_SIMS}) ...")
-        preds, probs = [], []
-        for _, game_row in lineup_w_pitching_batting_team_weather_df.iterrows():
-            summary = predict_game(
-                game_row,
-                batter_data_dict,
-                pitcher_data_dict,
-                n_sims=SIMULATOR_N_SIMS,
+    log.info(f"  Running simulator (n_sims={SIMULATOR_N_SIMS}) ...")
+    preds, probs, simmable = [], [], []
+    for _, game_row in lineup_w_pitching_batting_team_weather_df.iterrows():
+        summary = predict_game(
+            game_row,
+            batter_data_dict,
+            pitcher_data_dict,
+            n_sims=SIMULATOR_N_SIMS,
+        )
+        sim_summaries_by_game_key[_game_key(game_row)] = summary  # may be None
+        if summary is None:
+            log.warning(
+                f"  Simulator could not predict "
+                f"{game_row.get('team_v_full', '?')} @ {game_row.get('team_h_full', '?')} "
+                f"(missing starter or lineup data) — DROPPING this game (no win "
+                f"pick shown for it today; xgb_prob is still computed separately "
+                f"and is not used as a fallback)"
             )
-            sim_summaries_by_game_key[_game_key(game_row)] = (
-                summary  # may be None — handled below
-            )
-            if summary is None:
-                log.warning(
-                    f"  Simulator could not predict "
-                    f"{game_row.get('team_v_full', '?')} @ {game_row.get('team_h_full', '?')} "
-                    f"(missing starter or lineup data) — falling back to 0.5"
-                )
-                pred, prob = 0, 0.5
-            else:
-                prob = summary["home_win_prob"]
-                pred = int(prob > 0.5)
-            preds.append(pred)
+            simmable.append(False)
+            preds.append(None)
+            probs.append(None)
+        else:
+            simmable.append(True)
+            prob = summary["home_win_prob"]
+            preds.append(int(prob > 0.5))
             probs.append(prob)
-        lineup_w_pitching_batting_team_weather_df["home_victory"] = preds
-        lineup_w_pitching_batting_team_weather_df["prob"] = probs
-    elif USE_WIN_ENSEMBLE:
-        log.info("  Using win ensemble ...")
-        win_model_df = assemble_win_model_features(
-            lineup_w_pitching_batting_team_df.copy()
-        )
-        (
-            lineup_w_pitching_batting_team_weather_df["home_victory"],
-            lineup_w_pitching_batting_team_weather_df["prob"],
-        ) = predict_winner_ensemble(
-            win_model_df, WIN_ENSEMBLE_STRATEGY_FILE, WIN_ENSEMBLE_FLEET_FILE
-        )
-    else:
-        win_model_df = assemble_win_model_features(
-            lineup_w_pitching_batting_team_df.copy()
-        )
-        (
-            lineup_w_pitching_batting_team_weather_df["home_victory"],
-            lineup_w_pitching_batting_team_weather_df["prob"],
-        ) = predict_winner(win_model_df)
 
-    # calculate our edge
+    # drop rather than fill — a fabricated 0.5 in the prob column would still
+    # produce a real (meaningless) edge_h/edge_v via calculate_edge below and
+    # could surface as a false pick; dropping the row entirely is the only
+    # way to guarantee an unsimmable game never reaches filter_games_by_edge.
+    lineup_w_pitching_batting_team_weather_df = (
+        lineup_w_pitching_batting_team_weather_df[simmable].copy()
+    )
+    preds = [p for p, ok in zip(preds, simmable) if ok]
+    probs = [p for p, ok in zip(probs, simmable) if ok]
+
+    lineup_w_pitching_batting_team_weather_df["home_victory"] = preds
+    lineup_w_pitching_batting_team_weather_df["prob"] = probs
+
+    # calculate our edge (drives actual picks via filter_games_by_edge below)
     lineup_w_pitching_batting_team_weather_df["edge_h"] = (
         lineup_w_pitching_batting_team_weather_df.apply(
             lambda row: calculate_edge(row["prob"], row["moneyline_h"]), axis=1
@@ -706,6 +698,21 @@ def run_pipeline(run_date_str):
     lineup_w_pitching_batting_team_weather_df["edge_v"] = (
         lineup_w_pitching_batting_team_weather_df.apply(
             lambda row: calculate_edge(1 - row["prob"], row["moneyline_v"]), axis=1
+        )
+    )
+
+    # XGBoost edge — COMPARISON DISPLAY ONLY, never used for pick filtering.
+    # Same calculate_edge() math, just fed xgb_prob instead of the
+    # simulator's prob, so the dashboard can show what XGBoost would have
+    # called edge on the same game/line.
+    lineup_w_pitching_batting_team_weather_df["xgb_edge_h"] = (
+        lineup_w_pitching_batting_team_weather_df.apply(
+            lambda row: calculate_edge(row["xgb_prob"], row["moneyline_h"]), axis=1
+        )
+    )
+    lineup_w_pitching_batting_team_weather_df["xgb_edge_v"] = (
+        lineup_w_pitching_batting_team_weather_df.apply(
+            lambda row: calculate_edge(1 - row["xgb_prob"], row["moneyline_v"]), axis=1
         )
     )
 
@@ -741,37 +748,42 @@ def run_pipeline(run_date_str):
     hr_display_df = pd.DataFrame(), pd.DataFrame()
 
     if not df_hr.empty:
-        if USE_WIN_SIMULATOR:
-            log.info(
-                "  Reusing simulator results for HR probabilities (no re-simulation) ..."
-            )
-            sim_hr_probs_by_batter = {}
-            for summary in sim_summaries_by_game_key.values():
-                if summary is None:
-                    continue  # already warned about this game in the win-prediction block above
-                for slot, mlbam_id in summary["home_slot_to_mlbam_id"].items():
-                    if mlbam_id is not None:
-                        sim_hr_probs_by_batter[mlbam_id] = summary[
-                            "home_hr_prob_by_slot"
-                        ][slot]
-                for slot, mlbam_id in summary["away_slot_to_mlbam_id"].items():
-                    if mlbam_id is not None:
-                        sim_hr_probs_by_batter[mlbam_id] = summary[
-                            "away_hr_prob_by_slot"
-                        ][slot]
+        xgb_hr_probs = predict_homerun_hitter(df_hr)
+        df_hr["xgb_hr_prob"] = xgb_hr_probs
 
-            hr_probs = df_hr["b_id"].astype(str).map(sim_hr_probs_by_batter)
-            missing = hr_probs.isna().sum()
-            if missing:
-                log.warning(
-                    f"  {missing}/{len(hr_probs)} batters had no simulator HR "
-                    f"prediction (game skipped or batter not in lineup) — "
-                    f"falling back to XGBoost for those rows"
-                )
-                xgb_fallback = predict_homerun_hitter(df_hr)
-                hr_probs = hr_probs.fillna(pd.Series(xgb_fallback, index=df_hr.index))
-        else:
-            hr_probs = predict_homerun_hitter(df_hr)
+        log.info(
+            "  Reusing simulator results for HR probabilities (no re-simulation) ..."
+        )
+        sim_hr_probs_by_batter = {}
+        for summary in sim_summaries_by_game_key.values():
+            if summary is None:
+                continue
+            for slot, mlbam_id in summary["home_slot_to_mlbam_id"].items():
+                if mlbam_id is not None:
+                    sim_hr_probs_by_batter[mlbam_id] = summary["home_hr_prob_by_slot"][
+                        slot
+                    ]
+            for slot, mlbam_id in summary["away_slot_to_mlbam_id"].items():
+                if mlbam_id is not None:
+                    sim_hr_probs_by_batter[mlbam_id] = summary["away_hr_prob_by_slot"][
+                        slot
+                    ]
+
+        df_hr["sim_hr_prob"] = df_hr["b_id"].astype(str).map(sim_hr_probs_by_batter)
+        missing = df_hr["sim_hr_prob"].isna().sum()
+        if missing:
+            log.warning(
+                f"  {missing}/{len(df_hr)} batters had no simulator HR prediction "
+                f"(game skipped or batter not in lineup) — DROPPING those rows "
+                f"(no HR pick shown for them today; xgb_hr_prob is still computed "
+                f"and available but is not used as a fallback)"
+            )
+        # drop rather than fill — a silently XGBoost-sourced number in a
+        # simulator-driven column would be invisible in the output and
+        # would corrupt HR calibration tracking without any visible marker.
+        df_hr = df_hr[df_hr["sim_hr_prob"].notna()].copy()
+        hr_probs = df_hr["sim_hr_prob"]
+
         NAME_MAP_FILE = f"data/daily/{RUN_DATE}_name_map.pkl"
 
         if os.path.exists(NAME_MAP_FILE):
@@ -800,10 +812,13 @@ def run_pipeline(run_date_str):
         "team_h_full",
         "team_v_full",
         "prob",
+        "xgb_prob",
         "moneyline_h",
         "edge_h",
+        "xgb_edge_h",
         "moneyline_v",
         "edge_v",
+        "xgb_edge_v",
     ]
     new_preds = lineup_w_pitching_batting_team_weather_df.loc[:, preds_cols]
 
