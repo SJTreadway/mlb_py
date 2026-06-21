@@ -103,6 +103,15 @@ results\:today:
 results\:summary:
 	python3.11 -c "from results_tracker import print_summary; print_summary()"
 
+results\:hr:
+	python3.11 -c "from hr_results_tracker import update_hr_results; update_hr_results('$(DATE)')"
+
+results\:hr\:today:
+	python3.11 -c "from hr_results_tracker import update_hr_results; update_hr_results()"
+
+results\:hr\:summary:
+	python3.11 -c "from hr_results_tracker import print_summary; print_summary()"
+
 # Backfill Weather Data Cache For Model Training
 backfill\:weather:
 	python3.11 api/weather.py --cache cache/hr_training_data_weather_cache.pkl

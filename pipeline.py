@@ -53,6 +53,12 @@ from api.homerun import process_homerun_data
 
 
 from cleanup import cleanup_directory
+from ensemble_inference import predict_winner_ensemble
+from simulator_inference import (
+    predict_game,
+    predict_winner_simulator,
+    get_hr_probs_by_batter,
+)
 
 import tweepy
 
@@ -91,6 +97,25 @@ BVP_DICT_FILE = f"data/daily/{RUN_DATE}_bvp_dict.pkl"
 HR_ODDS_CACHE_FILE = f"data/daily/{RUN_DATE}_hr_odds_cache.pkl"
 PREDS_FILE = f"data/results/{RUN_DATE}_home_victory_preds.csv"
 DASHBOARD_FILE = f"data/results/{RUN_DATE}_dashboard.html"
+
+# Win ensemble (set USE_WIN_ENSEMBLE=1 to predict with the stacked fleet
+# instead of the single XGBoost model). Mutually exclusive with
+# USE_WIN_SIMULATOR — don't set both at once.
+USE_WIN_ENSEMBLE = int(os.environ.get("USE_WIN_ENSEMBLE", 0))
+WIN_ENSEMBLE_STRATEGY_FILE = "models/best_ensemble_strategy_win_2026v1.pkl"
+WIN_ENSEMBLE_FLEET_FILE = "models/ensemble_win_2026v1.pkl"
+
+# Win simulator (set USE_WIN_SIMULATOR=1 to predict win probability with the
+# Markov simulator instead of XGBoost / the ensemble). Mutually exclusive
+# with USE_WIN_ENSEMBLE — don't set both at once.
+USE_WIN_SIMULATOR = int(os.environ.get("USE_WIN_SIMULATOR", 0))
+SIMULATOR_N_SIMS = int(os.environ.get("SIMULATOR_N_SIMS", 30000))
+
+if USE_WIN_ENSEMBLE and USE_WIN_SIMULATOR:
+    raise SystemExit(
+        "USE_WIN_ENSEMBLE and USE_WIN_SIMULATOR are mutually exclusive — "
+        "set at most one of them to 1."
+    )
 
 # Set of features we will predict on
 RUNS_SCORED_FEAT_SET = [
@@ -613,11 +638,64 @@ def run_pipeline(run_date_str):
     )
 
     log.info(f"\nMaking Predictions")
-    win_model_df = assemble_win_model_features(lineup_w_pitching_batting_team_df.copy())
-    (
-        lineup_w_pitching_batting_team_weather_df["home_victory"],
-        lineup_w_pitching_batting_team_weather_df["prob"],
-    ) = predict_winner(win_model_df)
+    # Cache of full predict_game() summaries, keyed by (date_dblhead, team_h,
+    # team_v) — NOT game_pk, which does not survive the upstream pipeline
+    # transforms (confirmed empirically: game_row.get("game_pk") returns
+    # None at this point even though lineups.py's raw output includes it).
+    # (date_dblhead, team_h, team_v) is the same game-identity tuple already
+    # used elsewhere in this file (see df_runs.drop_duplicates at line ~611),
+    # so it's confirmed present and reliable here.
+    sim_summaries_by_game_key = {}
+
+    def _game_key(row):
+        return (row.get("date_dblhead"), row.get("team_h"), row.get("team_v"))
+
+    if USE_WIN_SIMULATOR:
+        log.info(f"  Using win simulator (n_sims={SIMULATOR_N_SIMS}) ...")
+        preds, probs = [], []
+        for _, game_row in lineup_w_pitching_batting_team_weather_df.iterrows():
+            summary = predict_game(
+                game_row,
+                batter_data_dict,
+                pitcher_data_dict,
+                n_sims=SIMULATOR_N_SIMS,
+            )
+            sim_summaries_by_game_key[_game_key(game_row)] = (
+                summary  # may be None — handled below
+            )
+            if summary is None:
+                log.warning(
+                    f"  Simulator could not predict "
+                    f"{game_row.get('team_v_full', '?')} @ {game_row.get('team_h_full', '?')} "
+                    f"(missing starter or lineup data) — falling back to 0.5"
+                )
+                pred, prob = 0, 0.5
+            else:
+                prob = summary["home_win_prob"]
+                pred = int(prob > 0.5)
+            preds.append(pred)
+            probs.append(prob)
+        lineup_w_pitching_batting_team_weather_df["home_victory"] = preds
+        lineup_w_pitching_batting_team_weather_df["prob"] = probs
+    elif USE_WIN_ENSEMBLE:
+        log.info("  Using win ensemble ...")
+        win_model_df = assemble_win_model_features(
+            lineup_w_pitching_batting_team_df.copy()
+        )
+        (
+            lineup_w_pitching_batting_team_weather_df["home_victory"],
+            lineup_w_pitching_batting_team_weather_df["prob"],
+        ) = predict_winner_ensemble(
+            win_model_df, WIN_ENSEMBLE_STRATEGY_FILE, WIN_ENSEMBLE_FLEET_FILE
+        )
+    else:
+        win_model_df = assemble_win_model_features(
+            lineup_w_pitching_batting_team_df.copy()
+        )
+        (
+            lineup_w_pitching_batting_team_weather_df["home_victory"],
+            lineup_w_pitching_batting_team_weather_df["prob"],
+        ) = predict_winner(win_model_df)
 
     # calculate our edge
     lineup_w_pitching_batting_team_weather_df["edge_h"] = (
@@ -663,7 +741,37 @@ def run_pipeline(run_date_str):
     hr_display_df = pd.DataFrame(), pd.DataFrame()
 
     if not df_hr.empty:
-        hr_probs = predict_homerun_hitter(df_hr)
+        if USE_WIN_SIMULATOR:
+            log.info(
+                "  Reusing simulator results for HR probabilities (no re-simulation) ..."
+            )
+            sim_hr_probs_by_batter = {}
+            for summary in sim_summaries_by_game_key.values():
+                if summary is None:
+                    continue  # already warned about this game in the win-prediction block above
+                for slot, mlbam_id in summary["home_slot_to_mlbam_id"].items():
+                    if mlbam_id is not None:
+                        sim_hr_probs_by_batter[mlbam_id] = summary[
+                            "home_hr_prob_by_slot"
+                        ][slot]
+                for slot, mlbam_id in summary["away_slot_to_mlbam_id"].items():
+                    if mlbam_id is not None:
+                        sim_hr_probs_by_batter[mlbam_id] = summary[
+                            "away_hr_prob_by_slot"
+                        ][slot]
+
+            hr_probs = df_hr["b_id"].astype(str).map(sim_hr_probs_by_batter)
+            missing = hr_probs.isna().sum()
+            if missing:
+                log.warning(
+                    f"  {missing}/{len(hr_probs)} batters had no simulator HR "
+                    f"prediction (game skipped or batter not in lineup) — "
+                    f"falling back to XGBoost for those rows"
+                )
+                xgb_fallback = predict_homerun_hitter(df_hr)
+                hr_probs = hr_probs.fillna(pd.Series(xgb_fallback, index=df_hr.index))
+        else:
+            hr_probs = predict_homerun_hitter(df_hr)
         NAME_MAP_FILE = f"data/daily/{RUN_DATE}_name_map.pkl"
 
         if os.path.exists(NAME_MAP_FILE):
