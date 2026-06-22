@@ -390,6 +390,7 @@ def generate_html(
         "Edge": _edge_color,
         "Wind Out": _wind_color,
         "HR Prob": _prob_color,
+        "XGB HR Prob": _prob_color,
         "Barrel%": lambda v: _stat_color("Barrel%", v),
         "EV": lambda v: _stat_color("EV", v),
         "HARDHIT%": lambda v: _stat_color("HARDHIT%", v),

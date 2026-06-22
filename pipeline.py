@@ -97,7 +97,7 @@ DASHBOARD_FILE = f"data/results/{RUN_DATE}_dashboard.html"
 # XGBoost still runs every time too (cheap — one predict_proba call, not a
 # simulation) so its number is visible for comparison via results:sim, but
 # results_tracker.py only ever scores the simulator's prob now.
-SIMULATOR_N_SIMS = int(os.environ.get("SIMULATOR_N_SIMS", 30000))
+SIMULATOR_N_SIMS = int(os.environ.get("SIMULATOR_N_SIMS", 50000))
 
 # Set of features we will predict on
 RUNS_SCORED_FEAT_SET = [
@@ -421,6 +421,7 @@ def print_todays_homerun_preds(df):
             "temp": "Temp",
             "humidity": "Humidity",
             "hr_prob": "HR Prob",
+            "xgb_hr_prob": "XGB HR Prob",
             "player_name": "Player",
         }
     )
@@ -485,10 +486,15 @@ def print_todays_homerun_preds(df):
         "FB%",
         "P-HR/BF",
         "HR Prob",
+        "XGB HR Prob",
     ]
     cols = [c for c in cols if c in df.columns]
     df["hr_prob_numeric"] = df["HR Prob"]  # save numeric before formatting
     df["HR Prob"] = df["HR Prob"].map(lambda x: f"{x:.1%}")
+    if "XGB HR Prob" in df.columns:
+        df["XGB HR Prob"] = df["XGB HR Prob"].map(
+            lambda x: f"{x:.1%}" if pd.notna(x) else "N/A"
+        )
 
     # filter out players with missing names
     df = df[(df["Player"].notna()) & (df["Player"] != "")]
