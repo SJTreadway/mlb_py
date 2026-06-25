@@ -18,12 +18,14 @@ import logging
 import os
 import sys
 import time
-from datetime import date, datetime
+from datetime import date
 
 import pandas as pd
 import requests
 
 import boto3
+
+from helpers import parse_date
 
 logging.basicConfig(
     format="%(asctime)s  %(levelname)-8s  %(message)s",
@@ -37,18 +39,6 @@ MLB_API = "https://statsapi.mlb.com/api/v1"
 S3_BUCKET = os.environ.get("S3_BUCKET", "moneyballvo-results")
 S3_KEY = "model_results.csv"
 LOCAL_CACHE = "/tmp/model_results.csv"
-
-
-def parse_date(raw: str) -> str:
-    """Normalize any reasonable date string to YYYY-MM-DD."""
-    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m-%d-%Y"):
-        try:
-            return datetime.strptime(raw, fmt).strftime("%Y-%m-%d")
-        except ValueError:
-            continue
-    raise ValueError(
-        f"Unrecognized date format: '{raw}'. Use YYYY-MM-DD or MM/DD/YYYY."
-    )
 
 
 def _download_from_s3() -> pd.DataFrame | None:

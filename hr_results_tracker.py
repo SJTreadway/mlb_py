@@ -35,8 +35,12 @@ import os
 import sys
 from datetime import date
 
+import boto3
+import botocore.exceptions
 import pandas as pd
 import requests
+
+from helpers import parse_date
 
 logging.basicConfig(
     format="%(asctime)s  %(levelname)-8s  %(message)s",
@@ -46,7 +50,28 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 MLB_API = "https://statsapi.mlb.com/api/v1"
-HR_RESULTS_FILE = "data/results/hr_model_results.csv"
+
+S3_BUCKET = os.environ.get("S3_BUCKET", "moneyballvo-results")
+S3_KEY = "hr_model_results.csv"
+LOCAL_CACHE = "/tmp/hr_model_results.csv"
+
+
+def _download_from_s3() -> pd.DataFrame | None:
+    s3 = boto3.client("s3")
+    try:
+        s3.download_file(S3_BUCKET, S3_KEY, LOCAL_CACHE)
+        return pd.read_csv(LOCAL_CACHE)
+    except botocore.exceptions.ClientError:
+        return None
+    except Exception as e:
+        log.warning(f"S3 download failed: {e}")
+        return None
+
+
+def _upload_to_s3(df: pd.DataFrame) -> None:
+    df.to_csv(LOCAL_CACHE, index=False)
+    boto3.client("s3").upload_file(LOCAL_CACHE, S3_BUCKET, S3_KEY)
+    log.info(f"Uploaded {len(df)} rows to s3://{S3_BUCKET}/{S3_KEY}")
 
 
 def fetch_game_pks_for_date(run_date: str) -> list[dict]:
@@ -171,16 +196,14 @@ def load_predictions(run_date: str) -> pd.DataFrame | None:
 
 
 def _append_to_master(df: pd.DataFrame) -> None:
-    os.makedirs(os.path.dirname(HR_RESULTS_FILE), exist_ok=True)
-    if os.path.exists(HR_RESULTS_FILE):
-        existing = pd.read_csv(HR_RESULTS_FILE)
+    existing = _download_from_s3()
+    if existing is not None:
         combined = pd.concat([existing, df], ignore_index=True)
         # de-dupe on (run_date, b_id) so re-running the same date is safe
         combined = combined.drop_duplicates(subset=["run_date", "b_id"], keep="last")
-        combined.to_csv(HR_RESULTS_FILE, index=False)
     else:
-        df.to_csv(HR_RESULTS_FILE, index=False)
-    log.info(f"  Appended {len(df)} rows → {HR_RESULTS_FILE}")
+        combined = df
+    _upload_to_s3(combined)
 
 
 def update_hr_results(run_date: str = None) -> None:
@@ -249,7 +272,7 @@ def update_hr_results(run_date: str = None) -> None:
         )
 
 
-def print_summary(min_date: str = None) -> None:
+def print_summary() -> None:
     """Print HR model performance summary from the master tracking CSV —
     mirrors results_tracker's print_summary() for the win model. This is the
     actual answer to "is HR_PROB_THRESHOLD=0.20 (or 23-24%) reasonable": it
@@ -262,15 +285,12 @@ def print_summary(min_date: str = None) -> None:
         python3.11 -c "from hr_results_tracker import print_summary; print_summary()"
         make hr-results:summary
     """
-    if not os.path.exists(HR_RESULTS_FILE):
+    df = _download_from_s3()
+    if df is None or df.empty:
         log.info(
-            f"No tracking data yet at {HR_RESULTS_FILE} — run hr-results for a few days first"
+            f"No tracking data yet at s3://{S3_BUCKET}/{S3_KEY} — run hr-results for a few days first"
         )
         return
-
-    df = pd.read_csv(HR_RESULTS_FILE)
-    if min_date:
-        df = df[df["run_date"] >= min_date]
 
     if df.empty:
         log.info("No tracking rows in range")
@@ -328,5 +348,7 @@ def print_summary(min_date: str = None) -> None:
 
 
 if __name__ == "__main__":
-    run_date_arg = sys.argv[1] if len(sys.argv) > 1 else None
-    update_hr_results(run_date_arg)
+    raw_date = sys.argv[1] if len(sys.argv) > 1 else str(date.today())
+    run_date = parse_date(raw_date)
+    update_hr_results(run_date)
+    print_summary()

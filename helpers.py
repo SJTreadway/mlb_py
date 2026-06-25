@@ -1,5 +1,6 @@
 import numpy as np
 import requests
+from datetime import datetime
 
 
 def roll_column(df, col, winsize):
@@ -214,3 +215,15 @@ def resolve_names(mlbam_ids: list[str]) -> dict[str, str]:
         team = TEAM_ABBREV.get(p.get("currentTeam", {}).get("name", ""), "")
         result[str(p["id"])] = f"{name} ({pos}, {team})"
     return result
+
+
+def parse_date(raw: str) -> str:
+    """Normalize any reasonable date string to YYYY-MM-DD."""
+    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m-%d-%Y"):
+        try:
+            return datetime.strptime(raw, fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            continue
+    raise ValueError(
+        f"Unrecognized date format: '{raw}'. Use YYYY-MM-DD or MM/DD/YYYY."
+    )

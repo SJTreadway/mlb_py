@@ -112,10 +112,10 @@ results\:summary:
 
 # HR model results
 results\:hr:
-	python3.11 -c "from hr_results_tracker import update_hr_results; update_hr_results('$(DATE)')"
+	python3.11 hr_results_tracker.py $(DATE)
 
 results\:hr\:today:
-	python3.11 -c "from hr_results_tracker import update_hr_results; update_hr_results()"
+	python3.11 hr_results_tracker.py
 
 results\:hr\:summary:
 	python3.11 -c "from hr_results_tracker import print_summary; print_summary()"
