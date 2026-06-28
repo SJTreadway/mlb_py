@@ -195,12 +195,55 @@ def update_results(run_date: str) -> None:
     )
     merged["units_profit"] = merged.apply(row_units, axis=1)
 
+    # ── derive XGB columns (pick-side aligned, graceful if absent) ────────────
+    xgb_cols_present = {
+        "xgb_prob_h",
+        "xgb_prob_v",
+        "xgb_edge_h",
+        "xgb_edge_v",
+    }.issubset(merged.columns)
+    if xgb_cols_present:
+        merged["xgb_prob"] = merged.apply(
+            lambda r: r["xgb_prob_v"] if r["model_pick"] == "V" else r["xgb_prob_h"],
+            axis=1,
+        )
+        merged["xgb_edge"] = merged.apply(
+            lambda r: r["xgb_edge_v"] if r["model_pick"] == "V" else r["xgb_edge_h"],
+            axis=1,
+        )
+        # Flag whether sim and XGB agree on pick direction
+        merged["models_agree"] = merged.apply(
+            lambda r: int(
+                (r["model_pick"] == "H" and float(r["xgb_prob_h"]) >= 0.5)
+                or (r["model_pick"] == "V" and float(r["xgb_prob_h"]) < 0.5)
+            ),
+            axis=1,
+        )
+    else:
+        log.warning(
+            "XGB columns (xgb_prob_h/v, xgb_edge_h/v) not found in predictions — "
+            "xgb_prob, xgb_edge, models_agree will be omitted for this date"
+        )
+
     # ── only track games where we'd actually bet (edge >= 4%) ─────────────────
-    edge_numeric = pd.to_numeric(
+    pre_filter_n = len(merged)
+    merged["edge_numeric"] = pd.to_numeric(
         merged["edge"].astype(str).str.replace("%", ""), errors="coerce"
     )
-    merged = merged[edge_numeric >= 4.0]
-    log.info(f"  {len(merged)} games with edge >= 4% (trackable bets)")
+    merged["moneyline_numeric"] = pd.to_numeric(merged["moneyline"], errors="coerce")
+
+    merged = merged[
+        merged["moneyline_numeric"].notna()
+        & (merged["edge_numeric"] >= 4.0)
+        & (merged["edge_numeric"] <= 50.0)
+    ]
+
+    dropped = pre_filter_n - len(merged)
+    if dropped:
+        log.warning(
+            f"  Dropped {dropped} rows with missing moneyline or implausible edge"
+        )
+    log.info(f"  {len(merged)} games with valid edge 4-50% (trackable bets)")
 
     if merged.empty:
         log.info("No qualifying bets for this date — skipping S3 update")
@@ -217,9 +260,12 @@ def update_results(run_date: str) -> None:
         "starting_pitcher_name_h",
         "starting_pitcher_name_v",
         "prob",
+        "xgb_prob",  # sim-pick-side XGB probability
         "model_pick",
         "moneyline",
         "edge",
+        "xgb_edge",  # sim-pick-side XGB edge
+        "models_agree",  # 1 if XGB and sim agree on pick direction
         "actual_home_victory",
         "actual_run_diff",
         "home_score",
@@ -314,6 +360,18 @@ def print_summary() -> None:
                             f"({bucket['pick_correct'].mean():.1%}) | "
                             f"{bucket['units_profit'].sum():+.2f}U"
                         )
+
+    # ── consensus vs split model breakdown (only if models_agree column exists) ─
+    if "models_agree" in tracked.columns and tracked["models_agree"].notna().any():
+        log.info(f"\n  By model agreement:")
+        for agree_val, label in [(1, "Consensus"), (0, "Split   ")]:
+            group = tracked[tracked["models_agree"] == agree_val]
+            if len(group):
+                log.info(
+                    f"    {label}: {group['pick_correct'].sum()}/{len(group)} "
+                    f"({group['pick_correct'].mean():.1%}) | "
+                    f"{group['units_profit'].sum():+.2f}U"
+                )
 
     log.info(f"{'='*40}")
 

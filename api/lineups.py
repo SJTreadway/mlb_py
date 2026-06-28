@@ -4,8 +4,7 @@ import os
 import time
 import requests
 import pandas as pd
-import numpy as np
-from datetime import datetime, timezone
+from datetime import datetime
 from dotenv import load_dotenv
 
 load_dotenv()
